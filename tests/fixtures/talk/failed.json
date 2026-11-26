@@ -1,0 +1,6 @@
+{
+    "fault": {
+        "code": "{{echo}}",
+        "words": "The key {{echo}} was not accepted."
+    }
+}

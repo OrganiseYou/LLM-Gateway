@@ -24,6 +24,9 @@
         <!-- The leak tests print whole exception traces with their arguments, and those reach every test of the
              suite: the 128M of a plain PHP image no longer holds that. -->
         <ini name="memory_limit" value="1G"/>
+        <!-- The leak tests search the traces of exceptions with the arguments of every call in them. A php.ini for
+             production leaves those out; a host with PHP's own default shows them. -->
+        <ini name="zend.exception_ignore_args" value="0"/>
     </php>
     <source>
         <include>

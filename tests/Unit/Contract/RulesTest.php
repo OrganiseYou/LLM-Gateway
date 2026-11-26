@@ -31,7 +31,7 @@ describe('the shared rules', function (): void {
     it('keep a provider code only when it is a plain word, lower-cased', function (?string $code, ?string $kept): void {
         expect(Rules::plainProviderCode($code))->toBe($kept);
     })->with([
-        [null, null], ['Invalid_Key.1-a', 'invalid_key.1-a'], ['', null], ['two words', null], [str_repeat('a', 65), null], ["code\n", null],
+        [null, null], ['Model_Not.Found-1', 'model_not.found-1'], ['', null], ['two words', null], [str_repeat('a', 65), null], ["code\n", null],
     ]);
 
     it('know a timeout', function (float $seconds, bool $valid): void {

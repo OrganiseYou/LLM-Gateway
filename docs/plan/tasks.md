@@ -98,7 +98,7 @@ ids (Gn) in `docs/plan/decisions.md`.
   answer is returned with reasons, never thrown (LR-33).
 
 ### LG-09 · The fake, the shared test set and the architecture tests
-- Status: todo · Needs: LG-07, LG-08
+- Status: done · Needs: LG-07, LG-08
 - Note: From LG-08: the fake runs the same structured check; a gateway exception the checker throws carries a placeholder trace id that the fake must replace with the call's, as the adapter base does. An answer that holds tool calls has no structured result (G53).
 - Note: From LG-07: the shared test set also checks what the adapter base does not enforce: the order of stream events, usage reported at most once, and a finished event whose text equals the text deltas.
 - Note: G34: add a preset and an adapter defined under `tests/`, outside `src/`, that pass the shared test set.
@@ -113,6 +113,7 @@ ids (Gn) in `docs/plan/decisions.md`.
 
 ### LG-10 · Read the documentation of the fifteen providers
 - Status: todo · Needs: LG-02
+- Note: From LG-09: the provider-name list in `tests/Architecture/ProviderNamesTest.php` takes its model names from the overview file; revisit it when the provider files are written.
 - Scope: one file `docs/providers/<provider>.md` for each provider in G3, and
   `docs/providers/overview.md` with one row per provider: hosted chat API or not; API format; base URL; sign-in; tool
   calling; parallel tool calls; structured output; tools with structured output; streaming; model list endpoint;
@@ -137,6 +138,7 @@ streaming works or falls back to one event; the "no credential in any output" te
 
 ### LG-12 · OpenAI-compatible adapter
 - Status: todo · Needs: LG-09, LG-11
+- Note: From LG-09: an adapter proves itself with `Testing\ContractTestCase` and an `AdapterFixtures` class; a reason that depends on a specific provider code in the body (for example "unknown model") needs the adapter's own unit test, because the shared set fixes the code its fixtures echo. The same holds for LG-13 to LG-17.
 - Note: G34: no closed list of models; an unknown model gets the format's default capabilities; a preset can state different capabilities through `adapterOptions`. The same holds for LG-13 to LG-17.
 - Scope: the chat-completions format: messages, tools, tool choice, JSON-schema response format, streaming, usage,
   model list. Options for the differences between servers that speak this format (no model list, no strict schema, no
@@ -209,6 +211,7 @@ its link, and its option not to store; a test builds a gateway from it with the 
 
 ### LG-22 · The tool loop
 - Status: todo · Needs: LG-09
+- Note: From LG-09: the architecture rule "never runs caller code" reserves the name `Loop\ToolExecutor` for the executor seam; update its list if the loop names it differently.
 - Note: G53: an answer that asks for tool calls has no structured result; only the final answer is checked. A check that goes over its limits comes back as an unusable result, not an exception (G52).
 - Scope: `src/Loop` (LR-14 to LR-17): calls the model, hands each tool call to the caller's executor, feeds results
   back, stops at an answer or at the caller's limits (rounds, tool calls; no defaults); events for every step; an

@@ -1,0 +1,15 @@
+event: say
+data: {"piece":"Hel"}
+
+event: say
+data: {"piece":"lo."}
+
+event: ping
+data: {"a kind of event this format does not document":true}
+
+event: used
+data: {"in":3,"out":2}
+
+event: end
+data: {"end":"done","by":"model-a-0001"}
+

@@ -9,3 +9,7 @@ All notable changes to this package are written here. The format follows
 ### Added
 
 - The repository skeleton: Composer package, Pest, PHPStan level 8, Pint, and the CI workflow.
+- `Testing\FakeGateway`: a gateway for the tests of an application, with scripted answers, tool calls, streams and
+  failures.
+- `Testing\ContractTestCase`: the shared test set every adapter passes, also an adapter a host project writes itself.
+  It needs `phpunit/phpunit` in the project that runs it.

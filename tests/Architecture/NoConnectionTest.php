@@ -357,3 +357,43 @@ it('catches a required package that is not PHP, a PSR interface or the JSON Sche
 it('allows PHP, the PSR interfaces and the JSON Schema checker as required packages', function (string $package): void {
     expect(requiredPackageIsAllowed($package))->toBeTrue();
 })->with(['php', 'psr/http-client', 'psr/http-factory', 'psr/http-message', 'opis/json-schema']);
+
+// LR-41: tests never reach a provider. The same search, on the tests themselves.
+
+/**
+ * The files under tests that read a file of the repository by a path they build, and why. Nothing else under tests
+ * may call a function that can open an address.
+ *
+ * @return array<string, string> path under tests => why
+ */
+function testFilesThatReadFilesOfTheRepository(): array
+{
+    return [
+        'Architecture/' => 'the architecture rules read the source files, composer.json and their sample files',
+        'Support/SourceCode.php' => 'lists the source files for the architecture rules',
+        'Support/TalkFixtures.php' => 'reads the hand-written fixtures under tests/fixtures/talk',
+    ];
+}
+
+it('opens no connection anywhere in tests: every test uses the fake transport and the fixtures', function (): void {
+    $tests = dirname(__DIR__);
+    $readers = testFilesThatReadFilesOfTheRepository();
+    // What reading a file of the repository looks like to the search. Anything else is a finding everywhere.
+    $reads = '/: (file_get_contents\(\)|new (Recursive)?DirectoryIterator)$/';
+
+    $files = SourceCode::phpFilesUnder($tests);
+    expect(count($files))->toBeGreaterThan(50, 'the rule must have found the test files');
+
+    $findings = [];
+    foreach ($files as $path) {
+        $file = substr($path, strlen($tests) + 1);
+        $mayRead = array_filter(array_keys($readers), fn(string $reader): bool => str_starts_with($file, $reader)) !== [];
+        foreach (connectionOpeners((string) file_get_contents($path)) as $finding) {
+            if (! $mayRead || preg_match($reads, $finding) !== 1) {
+                $findings[] = $file . ' ' . $finding;
+            }
+        }
+    }
+
+    expect($findings)->toBe([]);
+});

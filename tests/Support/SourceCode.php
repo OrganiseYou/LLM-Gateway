@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace OrganiseYou\LlmGateway\Tests\Support;
 
 use FilesystemIterator;
+use LogicException;
 use PhpToken;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
@@ -31,6 +32,88 @@ final class SourceCode
         sort($files);
 
         return $files;
+    }
+
+    /**
+     * @return list<string> every file under the folder, of any kind, as a path
+     */
+    public static function filesUnder(string $folder): array
+    {
+        $files = [];
+        foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($folder, FilesystemIterator::SKIP_DOTS)) as $file) {
+            if ($file instanceof SplFileInfo && $file->isFile()) {
+                $files[] = $file->getPathname();
+            }
+        }
+        sort($files);
+
+        return $files;
+    }
+
+    /**
+     * The classes, interfaces, enums and traits a piece of PHP code declares, in order: the name, or "an anonymous
+     * class" for one without a name. `Name::class` and `new Name()` declare nothing.
+     *
+     * @return list<string>
+     */
+    public static function declaredIn(string $code): array
+    {
+        $tokens = self::tokens($code);
+
+        $declared = [];
+        foreach ($tokens as $index => $token) {
+            if (! $token->is([T_CLASS, T_INTERFACE, T_ENUM, T_TRAIT])) {
+                continue;
+            }
+            $previous = $tokens[$index - 1] ?? null;
+            $next = $tokens[$index + 1] ?? null;
+            if ($previous !== null && $previous->is(T_DOUBLE_COLON)) {
+                continue;
+            }
+            $declared[] = $token->is(T_CLASS) && ($next === null || ! $next->is(T_STRING)) ? 'an anonymous class' : (string) $next?->text;
+        }
+
+        return $declared;
+    }
+
+    /**
+     * Every class, interface and enum of the library, by the path of its file under src.
+     *
+     * @return array<string, class-string> the path under src => the name
+     */
+    public static function classesOfTheLibrary(string $src): array
+    {
+        $classes = [];
+        foreach (self::phpFilesUnder($src) as $path) {
+            $relative = substr($path, strlen($src) + 1);
+            $class = 'OrganiseYou\\LlmGateway\\' . str_replace('/', '\\', substr($relative, 0, -4));
+            if (! class_exists($class) && ! interface_exists($class) && ! enum_exists($class)) {
+                throw new LogicException('The file ' . $relative . ' does not hold the class its path names.');
+            }
+            $classes[$relative] = $class;
+        }
+
+        return $classes;
+    }
+
+    /**
+     * The text of a piece of PHP code in two parts: its comments, and everything else (names, strings, text
+     * outside PHP), each with the other part left out. A rule about words can then be stricter for what runs
+     * than for what is only read.
+     *
+     * @return array{code: string, comments: string}
+     */
+    public static function codeAndComments(string $code): array
+    {
+        $parts = ['code' => '', 'comments' => ''];
+        foreach (PhpToken::tokenize($code) as $token) {
+            $isComment = $token->is([T_COMMENT, T_DOC_COMMENT]);
+            $parts[$isComment ? 'comments' : 'code'] .= $token->text;
+            // The line numbers of both parts stay those of the file.
+            $parts[$isComment ? 'code' : 'comments'] .= str_repeat("\n", substr_count($token->text, "\n"));
+        }
+
+        return $parts;
     }
 
     /**

@@ -1,0 +1,12 @@
+event: say
+data: {"piece":"{\"city\""}
+
+event: say
+data: {"piece":":\"Par"}
+
+event: used
+data: {"in":3,"out":2}
+
+event: end
+data: {"end":"cut","by":"model-a-0001"}
+

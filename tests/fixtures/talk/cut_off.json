@@ -1,0 +1,9 @@
+{
+    "say": "{\"city\":\"Par",
+    "end": "cut",
+    "by": "model-a-0001",
+    "used": {
+        "in": 3,
+        "out": 2
+    }
+}

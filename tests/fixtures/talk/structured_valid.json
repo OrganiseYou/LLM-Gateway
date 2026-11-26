@@ -1,0 +1,9 @@
+{
+    "say": "{\"city\":\"Paris\",\"days\":3}",
+    "end": "done",
+    "by": "model-a-0001",
+    "used": {
+        "in": 3,
+        "out": 2
+    }
+}

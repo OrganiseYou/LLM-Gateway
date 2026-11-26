@@ -1,0 +1,18 @@
+event: call_open
+data: {"ref":"ref_1","tool":"lookup"}
+
+event: call
+data: {"ref":"ref_1","tool":"lookup","input":"{\"city\":\"Paris\"}"}
+
+event: call_open
+data: {"ref":"ref_2","tool":"lookup"}
+
+event: call
+data: {"ref":"ref_2","tool":"lookup","input":"{\"city\":\"Rome\"}"}
+
+event: used
+data: {"in":3,"out":2}
+
+event: end
+data: {"end":"calls","by":"model-a-0001"}
+
