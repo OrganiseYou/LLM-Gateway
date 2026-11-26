@@ -48,7 +48,7 @@ ids (Gn) in `docs/plan/decisions.md`.
   unreadable arguments is a value, not an exception (LR-17).
 
 ### LG-04 · Errors, capabilities, model info
-- Status: todo · Needs: LG-02
+- Status: doing · Needs: LG-02
 - Scope: one exception class with the reasons of LR-32 as an enum, HTTP status, provider code (only when it matches
   `^[a-z0-9_.-]{1,64}$`), retry-after seconds, trace id; the capabilities value object (LR-10) with "native",
   "emulated", "none" for structured output and for a forced tool call (G16); model info (id, name, context length, aliases, deprecated).
@@ -75,6 +75,7 @@ ids (Gn) in `docs/plan/decisions.md`.
 
 ### LG-07 · The gateway interface, retries and streaming
 - Status: todo · Needs: LG-03, LG-04, LG-05, LG-06
+- Note: G34: `Preset` has a public constructor a host project can use; the constructor and protected methods of `AbstractAdapter` are extension points for adapters written outside the library.
 - Scope: the interface (LR-05); the adapter base that owns retries (LR-34, LR-35), timeouts (LR-36), attempt counting,
   latency, trace ids and error mapping from HTTP status; the stream event types (LR-12) and a server-sent-events
   reader that adapters share; the "whole answer as one event" fallback.
@@ -92,6 +93,7 @@ ids (Gn) in `docs/plan/decisions.md`.
 
 ### LG-09 · The fake, the shared test set and the architecture tests
 - Status: todo · Needs: LG-07, LG-08
+- Note: G34: add a preset and an adapter defined under `tests/`, outside `src/`, that pass the shared test set.
 - Scope: `src/Testing/FakeGateway` (scripted answers, tool calls, streams, failures; records the requests it got);
   `src/Testing/ContractTestCase`: the shared test set of LR-40, written once, that an adapter runs by supplying its
   fixtures; `tests/Architecture`: the rules of the project guide as tests, including a list of provider names (G3) that must
@@ -127,6 +129,7 @@ streaming works or falls back to one event; the "no credential in any output" te
 
 ### LG-12 · OpenAI-compatible adapter
 - Status: todo · Needs: LG-09, LG-11
+- Note: G34: no closed list of models; an unknown model gets the format's default capabilities; a preset can state different capabilities through `adapterOptions`. The same holds for LG-13 to LG-17.
 - Scope: the chat-completions format: messages, tools, tool choice, JSON-schema response format, streaming, usage,
   model list. Options for the differences between servers that speak this format (no model list, no strict schema, no
   usage in the stream), set by the preset.
@@ -232,6 +235,7 @@ its link, and its option not to store; a test builds a gateway from it with the 
 
 ### LG-26 · Documentation
 - Status: todo · Needs: LG-22, LG-23, LG-24
+- Note: G34: the README has a section "A new model or provider that the library does not know yet", with the three cases and a runnable example of a preset and an adapter in the host project.
 - Scope: `README.md` (LR-45): install, the first call, streaming, tools and the loop, structured output, errors,
   capabilities, writing a transport, the fake in tests, adding a preset, adding an adapter; a table of the presets
   with what the customer needs for each; `docs/migrating-from-organiseyou-gateway.md`: how the application's present
