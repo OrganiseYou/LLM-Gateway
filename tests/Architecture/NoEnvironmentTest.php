@@ -337,3 +337,46 @@ it('does not flag code that reads no environment, touches no file and keeps no s
     'a call through a variable, which the rule leaves alone' => ['$function($path); $object->$method($path);'],
     'the clock and the pause, which are not state' => ['$now = hrtime(true); usleep(1000); $json = json_encode($value);'],
 ]);
+
+// LR-41: no real key in a test. A key can only come into a test from the environment of the process, so no test
+// reads it: every key in a test is written in the test, and is made up.
+
+/**
+ * The findings of environmentAndStateUses() that are a way to a value of the environment of the process, as a
+ * pattern. Reading a file, a setting of PHP or a static variable is not one: tests do those.
+ */
+function waysToTheEnvironment(): string
+{
+    return '/: (getenv|putenv|apache_getenv|apache_setenv|get_cfg_var|parse_ini_file|filter_input|filter_input_array|getopt|readline)\(\)$|: \$(_ENV|_SERVER|_GET|_POST|_COOKIE|_REQUEST|_FILES|_SESSION|GLOBALS|argv|argc)$/';
+}
+
+it('reads no environment anywhere in tests: a test has no way to a real key', function (): void {
+    $tests = dirname(__DIR__);
+    $ways = waysToTheEnvironment();
+
+    $files = SourceCode::phpFilesUnder($tests);
+    expect(count($files))->toBeGreaterThan(50, 'the rule must have found the test files');
+
+    $findings = [];
+    foreach ($files as $path) {
+        foreach (environmentAndStateUses((string) file_get_contents($path)) as $finding) {
+            if (preg_match($ways, $finding) === 1) {
+                $findings[] = substr($path, strlen($tests) + 1) . ' ' . $finding;
+            }
+        }
+    }
+
+    expect($findings)->toBe([]);
+});
+
+it('knows the ways to the environment that the rule for tests looks for', function (string $code): void {
+    $ways = waysToTheEnvironment();
+
+    expect(array_filter(environmentAndStateUses("<?php\n" . $code), fn(string $finding): bool => preg_match($ways, $finding) === 1))->toHaveCount(1);
+})->with([
+    'getenv' => ['$key = getenv("PROVIDER_KEY");'],
+    'the environment array' => ['$key = $_ENV["PROVIDER_KEY"];'],
+    'the server array' => ['$key = $_SERVER["PROVIDER_KEY"] ?? "";'],
+    'the arguments of the command line' => ['$key = $argv[1];'],
+    'a line typed by a person' => ['$key = readline("Key: ");'],
+]);

@@ -98,7 +98,8 @@ final readonly class TalkAdapter extends AbstractAdapter
         return new HttpRequest(
             'POST',
             $url,
-            ['Content-Type' => 'application/json'],
+            // What a careless adapter does: the trace id of the caller, sent to the provider.
+            $this->option('sends_trace', false) === true ? ['Content-Type' => 'application/json', 'X-Trace' => (string) $request->traceId] : ['Content-Type' => 'application/json'],
             [],
             $request->timeoutSeconds,
             (string) json_encode([

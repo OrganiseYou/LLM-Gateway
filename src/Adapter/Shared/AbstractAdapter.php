@@ -899,7 +899,7 @@ abstract readonly class AbstractAdapter implements Gateway
         ];
     }
 
-    private static function bearer(Secret $secret): Secret
+    private static function bearer(#[SensitiveParameter] Secret $secret): Secret
     {
         return new Secret('Bearer ' . $secret->reveal());
     }

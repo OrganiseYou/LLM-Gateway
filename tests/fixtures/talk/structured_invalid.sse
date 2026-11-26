@@ -1,0 +1,15 @@
+event: say
+data: {"piece":"{\"city\":\"Pa"}
+
+event: say
+data: {"piece":"ris\",\"days\""}
+
+event: say
+data: {"piece":":\"three\"}"}
+
+event: used
+data: {"in":3,"out":2}
+
+event: end
+data: {"end":"done","by":"model-a-0001"}
+

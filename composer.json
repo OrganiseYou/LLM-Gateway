@@ -21,7 +21,11 @@
         "laravel/pint": "^1.32",
         "nyholm/psr7": "^1.8",
         "pestphp/pest": "^4.7",
-        "phpstan/phpstan": "^2.3"
+        "phpstan/phpstan": "^2.3",
+        "phpunit/phpunit": "^12.5"
+    },
+    "suggest": {
+        "phpunit/phpunit": "To prove an adapter of your own with the shared test set, Testing\\ContractTestCase (written for PHPUnit 12; Pest 4 runs it as it is)."
     },
     "minimum-stability": "stable",
     "prefer-stable": true,

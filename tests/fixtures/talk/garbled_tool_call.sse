@@ -1,0 +1,12 @@
+event: call_open
+data: {"ref":"ref_1","tool":"lookup"}
+
+event: call
+data: {"ref":"ref_1","tool":"lookup","input":"{\"city\": \"Par"}
+
+event: used
+data: {"in":3,"out":2}
+
+event: end
+data: {"end":"calls","by":"model-a-0001"}
+

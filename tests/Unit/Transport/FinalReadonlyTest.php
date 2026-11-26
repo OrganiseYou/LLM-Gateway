@@ -5,6 +5,7 @@ declare(strict_types=1);
 use OrganiseYou\LlmGateway\Contract\Operation;
 use OrganiseYou\LlmGateway\Contract\Secret;
 use OrganiseYou\LlmGateway\Testing\FakeClock;
+use OrganiseYou\LlmGateway\Testing\FakeGateway;
 use OrganiseYou\LlmGateway\Testing\FakeTransport;
 use OrganiseYou\LlmGateway\Transport\AttemptFinished;
 use OrganiseYou\LlmGateway\Transport\AttemptObserver;
@@ -55,7 +56,7 @@ it('has interfaces for the transport, the observer and the clock', function (): 
 });
 
 it('has final fakes that are not readonly: their state lives in the test', function (): void {
-    foreach ([FakeTransport::class, FakeClock::class] as $class) {
+    foreach ([FakeTransport::class, FakeClock::class, FakeGateway::class] as $class) {
         $reflection = new ReflectionClass($class);
 
         expect($reflection->isFinal())->toBeTrue($class . ' must be final')

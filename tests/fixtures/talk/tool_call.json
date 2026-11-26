@@ -1,0 +1,16 @@
+{
+    "say": "",
+    "calls": [
+        {
+            "ref": "ref_1",
+            "tool": "lookup",
+            "input": "{\"city\":\"Paris\"}"
+        }
+    ],
+    "end": "calls",
+    "by": "model-a-0001",
+    "used": {
+        "in": 3,
+        "out": 2
+    }
+}

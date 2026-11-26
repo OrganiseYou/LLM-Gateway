@@ -1,0 +1,6 @@
+{
+    "fault": {
+        "code": "{{echo}}",
+        "message": "The server could not answer: {{echo}}."
+    }
+}

@@ -1,0 +1,12 @@
+{
+    "say": "Hello.",
+    "end": "done",
+    "by": "model-a-0001",
+    "used": {
+        "in": 3,
+        "out": 2
+    },
+    "note": {
+        "a field this format does not document": true
+    }
+}

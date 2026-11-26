@@ -1,0 +1,24 @@
+<?php
+
+declare(strict_types=1);
+
+namespace OrganiseYou\LlmGateway\Contract;
+
+/**
+ * A sample for the architecture test: a class of the contract that knows who answers. Works around a quirk of
+ * Mistral.
+ */
+final readonly class AnswerQuirks
+{
+    public function __construct(public string $presetId) {}
+
+    public function needsJsonRepair(): bool
+    {
+        return $this->presetId === 'lighton' || $this->isOpenAiCompatible();
+    }
+
+    private function isOpenAiCompatible(): bool
+    {
+        return str_starts_with($this->presetId, 'other-');
+    }
+}
