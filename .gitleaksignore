@@ -2,3 +2,6 @@
 # Test data of the provider-code rule, 'Invalid_Key.1-a': a made-up code, not a key. The line was reworded since;
 # the commit stays in the history, which the scan reads whole.
 69f4e8d3e2e00e068833326601cec123a76ff47f:tests/Unit/Contract/RulesTest.php:generic-api-key:34
+# The same line in the same commit as it was on the branch of slice S1, before the merge gave it a new id. The scan
+# reads every branch it can fetch, and that branch is still on the remote.
+6eefdc011169f01084304880a7680167ab79b3fb:tests/Unit/Contract/RulesTest.php:generic-api-key:34
