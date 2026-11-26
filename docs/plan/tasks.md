@@ -40,7 +40,7 @@ ids (Gn) in `docs/plan/decisions.md`.
   provider name appears in the designed contract; message content is a list of parts (G10).
 
 ### LG-03 · Messages, tools, request and answer
-- Status: todo · Needs: LG-02
+- Status: done · Needs: LG-02
 - Scope: `src/Contract`: message, content parts (text only for now), tool definition, tool call (decoded arguments or
   an arguments error), tool choice, response format (JSON Schema), request, answer, usage, finish reason (an enum of
   neutral values).
