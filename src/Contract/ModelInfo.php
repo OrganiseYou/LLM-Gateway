@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace OrganiseYou\LlmGateway\Contract;
 
 use InvalidArgumentException;
+use OrganiseYou\LlmGateway\Contract\Internal\Rules;
 
 /**
  * One model of the model list.
@@ -24,10 +25,10 @@ final readonly class ModelInfo
         public array $aliases = [],
         public bool $deprecated = false,
     ) {
-        if ($id === '' || preg_match('/\p{Cc}/u', $id) !== 0) {
+        if (! Rules::isModelName($id)) {
             throw new InvalidArgumentException('The id must not be empty and must not hold a control character.');
         }
-        if ($name !== null && ($name === '' || preg_match('/\p{Cc}/u', $name) !== 0)) {
+        if ($name !== null && ! Rules::isModelName($name)) {
             throw new InvalidArgumentException('The name must not be empty and must not hold a control character.');
         }
         if ($contextLength !== null && $contextLength < 1) {
@@ -47,7 +48,7 @@ final readonly class ModelInfo
         }
 
         foreach ($aliases as $alias) {
-            if (! is_string($alias) || $alias === '' || preg_match('/\p{Cc}/u', $alias) !== 0) {
+            if (! is_string($alias) || ! Rules::isModelName($alias)) {
                 throw new InvalidArgumentException(
                     'An alias must be a string that is not empty and holds no control character.',
                 );

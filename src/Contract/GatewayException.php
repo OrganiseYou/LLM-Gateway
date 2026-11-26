@@ -7,6 +7,7 @@ namespace OrganiseYou\LlmGateway\Contract;
 use Exception;
 use InvalidArgumentException;
 use JsonSerializable;
+use OrganiseYou\LlmGateway\Contract\Internal\Rules;
 use ReflectionProperty;
 use RuntimeException;
 use SensitiveParameter;
@@ -40,7 +41,7 @@ final class GatewayException extends RuntimeException implements JsonSerializabl
         #[SensitiveParameter]
         public readonly ?string $detail = null,
     ) {
-        if (preg_match('/^[A-Za-z0-9_.:-]{1,128}$/D', $traceId) !== 1) {
+        if (! Rules::isTraceId($traceId)) {
             throw new InvalidArgumentException('The trace id must match ^[A-Za-z0-9_.:-]{1,128}$.');
         }
         if ($httpStatus !== null && ($httpStatus < 100 || $httpStatus > 599)) {
@@ -61,7 +62,7 @@ final class GatewayException extends RuntimeException implements JsonSerializabl
             self::assertDetail($detail);
         }
 
-        $this->providerCode = self::plainCode($providerCode);
+        $this->providerCode = Rules::plainProviderCode($providerCode);
 
         parent::__construct(self::buildMessage($reason, $httpStatus, $this->providerCode, $detail));
 
@@ -100,17 +101,6 @@ final class GatewayException extends RuntimeException implements JsonSerializabl
         if (preg_match('/^.{1,200}$/Du', $detail) !== 1) {
             throw new InvalidArgumentException('The detail must be 200 characters or fewer.');
         }
-    }
-
-    private static function plainCode(#[SensitiveParameter] ?string $providerCode): ?string
-    {
-        if ($providerCode === null) {
-            return null;
-        }
-
-        $lowered = strtolower($providerCode);
-
-        return preg_match('/^[a-z0-9_.-]{1,64}$/D', $lowered) === 1 ? $lowered : null;
     }
 
     private static function buildMessage(ErrorReason $reason, ?int $httpStatus, ?string $providerCode, ?string $detail): string

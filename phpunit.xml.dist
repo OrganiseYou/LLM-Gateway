@@ -20,6 +20,11 @@
             <directory>tests/Architecture</directory>
         </testsuite>
     </testsuites>
+    <php>
+        <!-- The leak tests print whole exception traces with their arguments, and those reach every test of the
+             suite: the 128M of a plain PHP image no longer holds that. -->
+        <ini name="memory_limit" value="1G"/>
+    </php>
     <source>
         <include>
             <directory>src</directory>
