@@ -170,7 +170,7 @@ describe('every credential', function (): void {
         }
     });
 
-    it('does not show the secret in the trace of an exception made while it is an argument', function (string $ignoreArgs): void {
+    it('does not show the secret in the trace of an exception made while it is an argument', function (bool $ignoreArgs): void {
         withExceptionIgnoreArgs($ignoreArgs, function (): void {
             $fail = fn(Credentials $credentials, array $all): RuntimeException => new RuntimeException('failed');
 
@@ -181,7 +181,7 @@ describe('every credential', function (): void {
                 expectNoMarker(exceptionForms($exception));
             }
         });
-    })->with(['arguments kept' => ['0'], 'arguments left out' => ['1']]);
+    })->with(['arguments kept' => [false], 'arguments left out' => [true]]);
 
     it('cannot be stored when it holds a secret or a supplier', function (): void {
         foreach (credentialsWithMarker() as $name => $credentials) {
@@ -266,7 +266,7 @@ describe('BearerKey and HeaderKey', function (): void {
     })->with([BearerKey::class, HeaderKey::class]);
 
     it('refuses a key with a control character, without the key in the refusal', function (string $class, string $before, string $after): void {
-        withExceptionIgnoreArgs('0', function () use ($class, $before, $after): void {
+        withExceptionIgnoreArgs(false, function () use ($class, $before, $after): void {
             $refusal = null;
             try {
                 keyCredential($class, $before . LEAK_MARKER . $after);
@@ -296,7 +296,7 @@ describe('BearerKey and HeaderKey', function (): void {
     ]);
 
     it('refuses a key that starts or ends with a space, which a client would trim away', function (string $class, string $before, string $after): void {
-        withExceptionIgnoreArgs('0', function () use ($class, $before, $after): void {
+        withExceptionIgnoreArgs(false, function () use ($class, $before, $after): void {
             $refusal = null;
             try {
                 keyCredential($class, $before . LEAK_MARKER . $after);
@@ -318,7 +318,7 @@ describe('BearerKey and HeaderKey', function (): void {
         expect(fn() => keyCredential($class, ' '))->toThrow(InvalidArgumentException::class, 'The key must not start or end with a space.');
     })->with([BearerKey::class, HeaderKey::class]);
 
-    it('hides the key in the trace of its refusal, with the arguments of calls kept and left out', function (string $class, string $ignoreArgs): void {
+    it('hides the key in the trace of its refusal, with the arguments of calls kept and left out', function (string $class, bool $ignoreArgs): void {
         withExceptionIgnoreArgs($ignoreArgs, function () use ($class, $ignoreArgs): void {
             try {
                 keyCredential($class, LEAK_MARKER . "\n");
@@ -327,7 +327,7 @@ describe('BearerKey and HeaderKey', function (): void {
 
                 expect($frame['function'])->toBe('__construct')
                     ->and($frame['class'] ?? null)->toBe($class);
-                if ($ignoreArgs === '0') {
+                if (! $ignoreArgs) {
                     expect($frame['args'][0] ?? null)->toBeInstanceOf(SensitiveParameterValue::class);
                 } else {
                     expect($frame)->not->toHaveKey('args');
@@ -339,7 +339,7 @@ describe('BearerKey and HeaderKey', function (): void {
 
             throw new LogicException('The key was accepted.');
         });
-    })->with([BearerKey::class, HeaderKey::class])->with(['arguments kept' => ['0'], 'arguments left out' => ['1']]);
+    })->with([BearerKey::class, HeaderKey::class])->with(['arguments kept' => [false], 'arguments left out' => [true]]);
 
     it('refuses a value that is not a string', function (): void {
         expect(fn() => new BearerKey(untyped(null)))->toThrow(TypeError::class)
@@ -405,7 +405,7 @@ describe('BearerToken', function (): void {
         expectNoMarker(valueForms($credentials));
     });
 
-    it('throws a fresh exception with a fixed text when the supplier throws, with nothing of what was thrown', function (string $ignoreArgs): void {
+    it('throws a fresh exception with a fixed text when the supplier throws, with nothing of what was thrown', function (bool $ignoreArgs): void {
         withExceptionIgnoreArgs($ignoreArgs, function (): void {
             $credentials = new BearerToken(scriptedSupplier(function (): Secret {
                 $argument = fn(string $token): Exception => new DomainException('Refused the token ' . $token, 7, new LogicException($token));
@@ -428,9 +428,9 @@ describe('BearerToken', function (): void {
             expectNoMarker(exceptionForms($failure ?? new LogicException('Nothing was thrown.')));
             expectNoMarker(valueForms($credentials));
         });
-    })->with(['arguments kept' => ['0'], 'arguments left out' => ['1']]);
+    })->with(['arguments kept' => [false], 'arguments left out' => [true]]);
 
-    it('throws a fresh error with a fixed text when the supplier fails with an error: a fault in code is no failed sign-in', function (string $ignoreArgs): void {
+    it('throws a fresh error with a fixed text when the supplier fails with an error: a fault in code is no failed sign-in', function (bool $ignoreArgs): void {
         withExceptionIgnoreArgs($ignoreArgs, function (): void {
             $credentials = new BearerToken(scriptedSupplier(function (): Secret {
                 $typed = fn(int $token): Secret => new Secret((string) $token);
@@ -451,7 +451,7 @@ describe('BearerToken', function (): void {
                 ->and($failure?->getCode())->toBe(0);
             expectNoMarker(exceptionForms($failure ?? new LogicException('Nothing was thrown.')));
         });
-    })->with(['arguments kept' => ['0'], 'arguments left out' => ['1']]);
+    })->with(['arguments kept' => [false], 'arguments left out' => [true]]);
 
     it('names an anonymous exception class without the path of its file', function (): void {
         $credentials = new BearerToken(scriptedSupplier(function (): Secret {
@@ -494,7 +494,7 @@ describe('BearerToken', function (): void {
     });
 
     it('refuses a token that cannot be sent as it is, without the token in the refusal', function (string $before, string $after): void {
-        foreach (['0', '1'] as $ignoreArgs) {
+        foreach ([false, true] as $ignoreArgs) {
             withExceptionIgnoreArgs($ignoreArgs, function () use ($before, $after): void {
                 $credentials = new BearerToken(scriptedSupplier(fn(): Secret => new Secret($before . LEAK_MARKER . $after)));
 

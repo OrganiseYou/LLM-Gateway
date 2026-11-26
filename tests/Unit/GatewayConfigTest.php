@@ -67,7 +67,7 @@ describe('GatewayConfig', function (): void {
     ]);
 
     it('keeps a refused base URL out of the refusal', function (): void {
-        withExceptionIgnoreArgs('0', function (): void {
+        withExceptionIgnoreArgs(false, function (): void {
             try {
                 new GatewayConfig(RetryPolicy::none(), 'https://user:' . LEAK_MARKER . '@api.example.test');
                 $refusal = null;

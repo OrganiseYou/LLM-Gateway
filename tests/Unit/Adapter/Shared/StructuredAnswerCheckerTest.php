@@ -1339,7 +1339,7 @@ describe('step 6: a schema the validator cannot use', function (): void {
     });
 
     it('keeps the answer, the schema and the paths of the host out of the refusal, in any output form', function (): void {
-        foreach (['0', '1'] as $ignoreArgs) {
+        foreach ([false, true] as $ignoreArgs) {
             withExceptionIgnoreArgs($ignoreArgs, function (): void {
                 $schemas = [
                     '{"type":"object","properties":{"' . LEAK_MARKER . '":{"type":[null]}}}',

@@ -269,7 +269,7 @@ describe('GatewayException', function (): void {
     });
 
     describe('secrets', function (): void {
-        it('shows the marker in no form when the error text, a header and the client failure hold it', function (string $ignoreArgs): void {
+        it('shows the marker in no form when the error text, a header and the client failure hold it', function (bool $ignoreArgs): void {
             withExceptionIgnoreArgs($ignoreArgs, function (): void {
                 $exception = gatewayErrorFromAttempt(
                     '{"error":{"message":"Incorrect API key provided: ' . LEAK_MARKER . '"}}',
@@ -285,10 +285,10 @@ describe('GatewayException', function (): void {
                 expect($exception->getPrevious())->toBeNull()
                     ->and(exceptionForms($exception)['serialize'])->toContain('credentials_rejected');
             });
-        })->with(['arguments kept in traces' => ['0'], 'arguments left out of traces' => ['1']]);
+        })->with(['arguments kept in traces' => [false], 'arguments left out of traces' => [true]]);
 
         it('keeps no argument of any call in its trace', function (): void {
-            withExceptionIgnoreArgs('0', function (): void {
+            withExceptionIgnoreArgs(false, function (): void {
                 $exception = gatewayErrorFromAttempt(LEAK_MARKER, ['x-api-key' => LEAK_MARKER], new RuntimeException(LEAK_MARKER));
 
                 expect($exception->getTrace())->not->toBe([]);
@@ -303,7 +303,7 @@ describe('GatewayException', function (): void {
         });
 
         it('shows the marker in no form of the exception for a refused argument', function (Closure $build): void {
-            withExceptionIgnoreArgs('0', function () use ($build): void {
+            withExceptionIgnoreArgs(false, function () use ($build): void {
                 $refused = null;
 
                 try {
@@ -366,20 +366,27 @@ describe('GatewayException', function (): void {
         });
 
         it('would show the marker in an exception of plain PHP built at the same place', function (): void {
-            withExceptionIgnoreArgs('0', function (): void {
-                $forms = exceptionForms(plainErrorFromAttempt(
-                    LEAK_MARKER,
-                    ['Authorization' => 'Bearer ' . LEAK_MARKER],
-                    new RuntimeException('request with key ' . LEAK_MARKER . ' failed'),
-                ));
+            // The string forms cut a string argument to zend.exception_string_param_max_len bytes: 15 unless a
+            // php.ini says otherwise, 0 in php.ini-production. The other forms show every argument whole, whatever
+            // that setting is. No expectation here carries the marker in its failure: see holdsMarker().
+            foreach ([[15, 'sk-test-MARKER-...'], [0, "plainErrorFromAttempt('...', Array"], [1000, LEAK_MARKER]] as [$length, $shown]) {
+                withExceptionIgnoreArgs(false, function () use ($length, $shown): void {
+                    $forms = exceptionForms(plainErrorFromAttempt(
+                        LEAK_MARKER,
+                        ['Authorization' => 'Bearer ' . LEAK_MARKER],
+                        new RuntimeException('request with key ' . LEAK_MARKER . ' failed'),
+                    ));
+                    $at = ', with ' . $length . ' bytes of a string argument shown';
 
-                expect($forms['print_r'])->toContain(LEAK_MARKER)
-                    ->and($forms['var_export'])->toContain(LEAK_MARKER)
-                    ->and($forms['var_dump'])->toContain(LEAK_MARKER)
-                    ->and($forms['getTrace'])->toContain(LEAK_MARKER)
-                    ->and($forms['getTraceAsString'])->toContain('sk-test-MARKER-...')
-                    ->and($forms['string cast'])->toContain('sk-test-MARKER-...');
-            });
+                    foreach (['print_r', 'var_export', 'var_dump', 'getTrace'] as $form) {
+                        expect(holdsMarker($forms[$form]))->toBeTrue($form . ' shows the whole argument' . $at);
+                    }
+                    foreach (['getTraceAsString', 'string cast'] as $form) {
+                        expect(holdsMarker($forms[$form], $shown))->toBeTrue($form . ' shows the argument cut to that length' . $at);
+                        expect(holdsMarker($forms[$form], 'MARKER'))->toBe($length !== 0, $form . ' holds the word of the marker' . $at);
+                    }
+                }, $length);
+            }
         });
 
         it('drops the marker when it comes as a provider code in a sentence or a header value', function (string $code): void {
@@ -400,8 +407,8 @@ describe('GatewayException', function (): void {
             $exception = new GatewayException(ErrorReason::CredentialsRejected, 'trace-1', 401, LEAK_MARKER, null, 1);
 
             expect($exception->providerCode)->toBe(strtolower(LEAK_MARKER))
-                ->and($exception->getMessage())->not->toContain(LEAK_MARKER)
-                ->and($exception->getMessage())->toContain(strtolower(LEAK_MARKER));
+                ->and(holdsMarker($exception->getMessage()))->toBeFalse()
+                ->and(holdsMarker($exception->getMessage(), strtolower(LEAK_MARKER)))->toBeTrue();
         });
     });
 });

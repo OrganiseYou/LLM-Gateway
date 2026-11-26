@@ -26,6 +26,11 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
+          # The php.ini of a production host, which is also this action's default: no arguments in the traces of
+          # exceptions, no bytes of a string argument in their string form, assertions off. Named here so the
+          # suite is known to pass under it; phpunit.xml.dist sets what the leak tests need. To run the suite
+          # the same way on your own machine, see "Development" in the README.
+          ini-file: production
           coverage: none
           tools: composer:v2
 

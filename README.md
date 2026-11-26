@@ -20,6 +20,14 @@ docker run --rm -v "$PWD":/app -w /app composer:2 composer install
 docker run --rm -v "$PWD":/app -w /app composer:2 composer check
 ```
 
+CI runs the suite with PHP's `php.ini-production`, which differs from PHP without a `php.ini` in what the trace of an
+exception shows. The tests set what they need themselves (`phpunit.xml.dist`), so both give the same result. To run
+the tests as CI does:
+
+```bash
+docker run --rm -v "$PWD":/app -w /app php:8.4-cli sh -c 'cp $PHP_INI_DIR/php.ini-production $PHP_INI_DIR/php.ini && vendor/bin/pest'
+```
+
 ## Licence
 
 MIT, see [LICENSE](LICENSE).

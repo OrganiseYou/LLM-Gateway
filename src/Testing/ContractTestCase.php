@@ -70,8 +70,11 @@ use PHPUnit\Framework\TestCase;
  * first piece of text. (The subject sends one comment line of its own before the chunks of a fixture.)
  *
  * The traces of exceptions are searched for the key with the arguments of every call in them. Where PHP is set to
- * leave those out (zend.exception_ignore_args), one test is skipped to say so: set it to 0 for the tests, with
- * `<ini name="zend.exception_ignore_args" value="0"/>` in phpunit.xml.
+ * leave those out (zend.exception_ignore_args, which php.ini-production switches on), every other test gives the
+ * verdict it gives elsewhere, and one test is skipped to say that the search saw less: set it to 0 for the tests,
+ * with `<ini name="zend.exception_ignore_args" value="0"/>` in phpunit.xml. No other setting of PHP changes a
+ * verdict. zend.exception_string_param_max_len, which php.ini-production sets to 0, only shortens the string form of
+ * a trace, and every argument that form shows is searched whole in the trace itself.
  */
 abstract class ContractTestCase extends TestCase
 {
@@ -789,8 +792,10 @@ abstract class ContractTestCase extends TestCase
     {
         if (! self::traceKeepsArguments(self::MARKER_WORD)) {
             self::markTestSkipped(
-                'PHP leaves the arguments of calls out of the traces of exceptions here (zend.exception_ignore_args), so the '
-                . 'search of the traces for the key saw less than a host with the default setting would show. Set it to 0 for the tests.',
+                'PHP leaves the arguments of calls out of the traces of exceptions here (zend.exception_ignore_args, which '
+                . 'php.ini-production switches on), so the search of the traces for the key saw less than a host with the '
+                . 'default setting would show. Set it to 0 for the tests: <ini name="zend.exception_ignore_args" value="0"/> '
+                . 'under <php> in phpunit.xml.',
             );
         }
 
