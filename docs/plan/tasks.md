@@ -67,7 +67,8 @@ ids (Gn) in `docs/plan/decisions.md`.
   the bridge (architecture test).
 
 ### LG-06 · Credentials and secrets
-- Status: todo · Needs: LG-02
+- Status: done · Needs: LG-02
+- Note: G21 and G42: four credential classes plus preset settings instead of the six kinds listed in the scope.
 - Scope: credential value objects for the kinds in the design (bearer key, header key, key with resource/deployment/
   API version, access token with project and region, token supplier callback for short-lived tokens, none); a way for
   the caller to receive the secret values to redact before the first request (LR-26).
@@ -76,6 +77,7 @@ ids (Gn) in `docs/plan/decisions.md`.
 
 ### LG-07 · The gateway interface, retries and streaming
 - Status: todo · Needs: LG-03, LG-04, LG-05, LG-06
+- Note: From LG-06: catch exactly `TokenSupplierFailed` around `token()` and map it to `credentials_rejected`, not retried, without copying its text; let an `\Error` pass; the adapter base builds the sign-in header value as a `Secret`.
 - Note: G41, extra acceptance carried over from LG-05: an observer that throws, before or after an attempt, does not change the result of the call. In tests, script a redirect as `willFail(Redirected)`; the fake transport returns a scripted 3xx as a normal response.
 - Note: From LG-04: the adapter base drops a provider code that equals the credential, clamps the HTTP status and the wait before it builds the gateway exception, marks parameters that hold a body or headers as sensitive, and builds every `detail` from fixed text, numbers and neutral names only.
 - Note: G34: `Preset` has a public constructor a host project can use; the constructor and protected methods of `AbstractAdapter` are extension points for adapters written outside the library.

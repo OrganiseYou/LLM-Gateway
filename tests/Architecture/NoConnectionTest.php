@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use OrganiseYou\LlmGateway\Tests\Support\SourceCode;
+
 // LR-28: the library opens no network connection by itself. Every request goes through the transport the host
 // gives. Outside src/Transport no code may call a function that connects, read or open a file by a name it does not
 // spell out, or build an HTTP client.
@@ -31,10 +33,7 @@ function connectionOpeners(string $code): array
     // Static makers of the same kind: Dom\HTMLDocument::createFromFile(), XMLReader::open(), fromUri().
     $staticMakers = ['createfromfile', 'fromuri'];
 
-    $tokens = array_values(array_filter(
-        PhpToken::tokenize($code),
-        fn(PhpToken $token): bool => ! $token->isIgnorable(),
-    ));
+    $tokens = SourceCode::tokens($code);
 
     $found = [];
     $inBackticks = false;
@@ -43,7 +42,7 @@ function connectionOpeners(string $code): array
         $next = $tokens[$index + 1] ?? null;
 
         if ($token->is(T_NEW) && $next !== null && $next->is([T_STRING, T_NAME_QUALIFIED, T_NAME_FULLY_QUALIFIED])) {
-            $class = strtolower(ltrim((string) strrchr('\\' . $next->text, '\\'), '\\'));
+            $class = SourceCode::shortName($next->text);
             if ($class === 'client' || str_ends_with($class, 'httpclient') || in_array($class, $classes, true)) {
                 $found[] = 'line ' . $token->line . ': new ' . $next->text;
             }
@@ -62,16 +61,7 @@ function connectionOpeners(string $code): array
         }
 
         if ($token->is([T_INCLUDE, T_INCLUDE_ONCE, T_REQUIRE, T_REQUIRE_ONCE])) {
-            // Only a path the code spells out is known to be a file: __DIR__ and string literals without a scheme.
-            $spelledOut = true;
-            for ($at = $index + 1; isset($tokens[$at]) && $tokens[$at]->text !== ';'; $at++) {
-                $part = $tokens[$at];
-                $literal = $part->is(T_CONSTANT_ENCAPSED_STRING) && ! str_contains($part->text, '://');
-                if (! $literal && ! $part->is(T_DIR) && ! in_array($part->text, ['.', '(', ')'], true)) {
-                    $spelledOut = false;
-                }
-            }
-            if (! $spelledOut || $at === $index + 1) {
+            if (SourceCode::includesPathNotSpelledOut($tokens, $index)) {
                 $found[] = 'line ' . $token->line . ': ' . strtolower($token->text) . ' of a path that is not spelled out';
             }
 
@@ -88,27 +78,22 @@ function connectionOpeners(string $code): array
         }
         $owner = $tokens[$index - 2] ?? null;
         if ($previous !== null && $previous->is(T_DOUBLE_COLON) && $owner !== null
-            && in_array(strtolower(ltrim((string) strrchr('\\' . $owner->text, '\\'), '\\')), $classes, true)) {
+            && in_array(SourceCode::shortName($owner->text), $classes, true)) {
             $found[] = 'line ' . $token->line . ': ' . $owner->text . '::' . $token->text . '()';
 
             continue;
         }
-        if ($previous !== null && $previous->is([T_OBJECT_OPERATOR, T_NULLSAFE_OBJECT_OPERATOR, T_DOUBLE_COLON, T_FUNCTION, T_NEW])) {
+        $function = SourceCode::calledFunction($tokens, $index);
+        if ($function === null) {
             continue; // a method, or the declaration of one: not the PHP function of that name
         }
-
-        $function = strtolower(ltrim($token->text, '\\'));
         if (str_starts_with($function, 'curl_') || str_starts_with($function, 'socket_') || in_array($function, $always, true)) {
             $found[] = 'line ' . $token->line . ': ' . $function . '()';
 
             continue;
         }
         if (in_array($function, $byName, true)) {
-            $argument = $tokens[$index + 2] ?? null;
-            $inMemory = $argument !== null
-                && $argument->is(T_CONSTANT_ENCAPSED_STRING)
-                && preg_match('/^[\'"]php:\/\/(memory|temp)\b/D', $argument->text) === 1;
-            if (! $inMemory) {
+            if (! SourceCode::isInMemoryStream($tokens[$index + 2] ?? null)) {
                 $found[] = 'line ' . $token->line . ': ' . $function . '()';
             }
         }
@@ -125,27 +110,10 @@ function requiredPackageIsAllowed(string $package): bool
     return $package === 'php' || $package === 'opis/json-schema' || preg_match('/^psr\/[a-z0-9-]+$/D', $package) === 1;
 }
 
-/**
- * @return list<string> every PHP file under the folder, as a path
- */
-function phpFilesUnder(string $folder): array
-{
-    $files = [];
-    $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($folder, FilesystemIterator::SKIP_DOTS));
-    foreach ($iterator as $file) {
-        if ($file instanceof SplFileInfo && $file->isFile() && $file->getExtension() === 'php') {
-            $files[] = $file->getPathname();
-        }
-    }
-    sort($files);
-
-    return $files;
-}
-
 it('opens no connection in src outside src/Transport', function (): void {
     $src = dirname(__DIR__, 2) . '/src';
     $files = array_values(array_filter(
-        phpFilesUnder($src),
+        SourceCode::phpFilesUnder($src),
         fn(string $path): bool => ! str_starts_with($path, $src . '/Transport/'),
     ));
 
@@ -163,7 +131,7 @@ it('opens no connection in src outside src/Transport', function (): void {
 
 it('opens no connection in src/Transport either: the bridge only calls the client of the host', function (): void {
     $findings = [];
-    foreach (phpFilesUnder(dirname(__DIR__, 2) . '/src/Transport') as $path) {
+    foreach (SourceCode::phpFilesUnder(dirname(__DIR__, 2) . '/src/Transport') as $path) {
         foreach (connectionOpeners((string) file_get_contents($path)) as $finding) {
             $findings[] = basename($path) . ' ' . $finding;
         }
