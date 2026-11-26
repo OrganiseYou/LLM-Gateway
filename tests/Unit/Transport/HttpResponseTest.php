@@ -89,7 +89,7 @@ describe('HttpResponse', function (): void {
         ]);
     });
 
-    it('keeps nothing of a refused response in the refusal', function (string $ignoreArgs): void {
+    it('keeps nothing of a refused response in the refusal', function (bool $ignoreArgs): void {
         withExceptionIgnoreArgs($ignoreArgs, function (): void {
             try {
                 new HttpResponse(700, ['Set-Cookie' => LEAK_MARKER], '{"echo":"' . LEAK_MARKER . '"}');
@@ -101,7 +101,7 @@ describe('HttpResponse', function (): void {
 
             throw new LogicException('The response was accepted.');
         });
-    })->with(['arguments kept' => ['0'], 'arguments left out' => ['1']]);
+    })->with(['arguments kept' => [false], 'arguments left out' => [true]]);
 });
 
 describe('HttpStreamResponse', function (): void {

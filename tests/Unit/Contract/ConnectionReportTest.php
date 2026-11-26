@@ -57,7 +57,7 @@ describe('CheckResult', function (): void {
     })->with([[CheckStatus::Yes], [CheckStatus::NotSupported], [CheckStatus::NotRun]]);
 
     it('keeps a refused provider code out of the refusal', function (): void {
-        withExceptionIgnoreArgs('0', function (): void {
+        withExceptionIgnoreArgs(false, function (): void {
             try {
                 new CheckResult(CheckStatus::Yes, null, LEAK_MARKER);
                 $refusal = null;

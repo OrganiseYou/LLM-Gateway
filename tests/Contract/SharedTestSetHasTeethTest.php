@@ -5,6 +5,7 @@ declare(strict_types=1);
 use OrganiseYou\LlmGateway\Tests\Support\BrokenContractCase;
 use OrganiseYou\LlmGateway\Tests\Support\BrokenGateway;
 use PHPUnit\Framework\AssertionFailedError;
+use PHPUnit\Framework\SkippedTest;
 
 // The shared test set must fail a gateway that breaks the contract. Each row names one fault and the test of the
 // set that must catch it. The test is first run on the sound gateway, where it passes, so the failure that follows
@@ -74,3 +75,46 @@ it('names the failure without repeating the key', function (): void {
     expect($message)->toContain('shows the key the gateway signed in with')
         ->and(stripos($message, 'MARKER'))->toBeFalse();
 });
+
+// A host project runs the set under its own php.ini, which may be the one for production: no arguments in traces
+// and no bytes of a string argument in their string form. The verdict on a key in an error must be the same there.
+
+dataset('the settings of PHP for traces', [
+    'PHP without a php.ini, and php.ini-development' => [false, 15],
+    'arguments kept, no bytes of a string argument shown' => [false, 0],
+    'php.ini-production' => [true, 0],
+    'arguments left out, 15 bytes of a string argument' => [true, 15],
+]);
+
+it('gives the same verdict on a key in an error under', function (bool $ignoreArgs, int $stringLength, string $fault): void {
+    withExceptionIgnoreArgs($ignoreArgs, function () use ($fault): void {
+        (new BrokenContractCase('teeth'))->testNoKeyInAnyErrorOrItsTrace();
+
+        $broken = new BrokenContractCase('teeth');
+        $broken->fault = $fault;
+
+        expect(fn() => $broken->testNoKeyInAnyErrorOrItsTrace())->toThrow(AssertionFailedError::class, 'shows the key the gateway signed in with');
+    }, $stringLength);
+})->with('the settings of PHP for traces')->with([BrokenGateway::KEY_IN_DETAIL, BrokenGateway::KEY_AS_CODE]);
+
+it('says so with the setting to change, and fails nothing, when its search of the traces saw no arguments under', function (bool $ignoreArgs, int $stringLength): void {
+    withExceptionIgnoreArgs($ignoreArgs, function () use ($ignoreArgs): void {
+        $case = new BrokenContractCase('teeth');
+
+        try {
+            $case->testTheTracesAreSearchedWithTheArgumentsOfEveryCall();
+            $skipped = null;
+        } catch (SkippedTest $skip) {
+            $skipped = $skip->getMessage();
+        }
+
+        if (! $ignoreArgs) {
+            expect($skipped)->toBeNull();
+
+            return;
+        }
+
+        expect($skipped)->toContain('zend.exception_ignore_args')
+            ->toContain('<ini name="zend.exception_ignore_args" value="0"/>');
+    }, $stringLength);
+})->with('the settings of PHP for traces');

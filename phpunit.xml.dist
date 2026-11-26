@@ -27,6 +27,10 @@
         <!-- The leak tests search the traces of exceptions with the arguments of every call in them. A php.ini for
              production leaves those out; a host with PHP's own default shows them. -->
         <ini name="zend.exception_ignore_args" value="0"/>
+        <!-- How many bytes of a string argument the string form of a trace shows. PHP's own default is 15; a
+             php.ini for production sets 0, and a test that expects the first bytes of an argument there then
+             fails. Set here so the suite sees the same on every machine. -->
+        <ini name="zend.exception_string_param_max_len" value="15"/>
     </php>
     <source>
         <include>
