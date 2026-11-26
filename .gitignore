@@ -1,0 +1,22 @@
+# Dependencies (a library does not commit its lock file)
+/vendor/
+/composer.lock
+
+# Tool caches
+/.phpunit.cache/
+/.phpunit.result.cache
+/.pest/
+/.phpstan.cache/
+/.pint.cache
+/.php-cs-fixer.cache
+/coverage/
+
+# Local environment: real keys never enter the repository
+.env
+.env.*
+!.env.example
+
+# Editor and system files
+.DS_Store
+/.idea/
+/.vscode/

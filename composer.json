@@ -1,0 +1,65 @@
+{
+    "name": "organiseyou/llm-gateway",
+    "description": "One PHP interface to many LLM providers: neutral requests in, neutral answers out, over a transport the caller supplies.",
+    "license": "MIT",
+    "type": "library",
+    "keywords": [
+        "llm",
+        "ai",
+        "gateway",
+        "psr-18"
+    ],
+    "require": {
+        "php": "^8.4",
+        "opis/json-schema": "^2.6",
+        "psr/http-client": "^1.0",
+        "psr/http-factory": "^1.1",
+        "psr/http-message": "^2.0"
+    },
+    "require-dev": {
+        "guzzlehttp/guzzle": "^8.6",
+        "laravel/pint": "^1.32",
+        "nyholm/psr7": "^1.8",
+        "pestphp/pest": "^4.7",
+        "phpstan/phpstan": "^2.3"
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true,
+    "autoload": {
+        "psr-4": {
+            "OrganiseYou\\LlmGateway\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "OrganiseYou\\LlmGateway\\Tests\\": "tests/"
+        }
+    },
+    "config": {
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        },
+        "platform": {
+            "php": "8.4.0"
+        },
+        "sort-packages": true
+    },
+    "scripts": {
+        "check": [
+            "@style:check",
+            "@stan",
+            "@test"
+        ],
+        "stan": "phpstan analyse --no-progress --memory-limit=1G",
+        "style": "pint",
+        "style:check": "pint --test",
+        "test": "pest"
+    },
+    "scripts-descriptions": {
+        "check": "Code style check, PHPStan and the tests: run once per task, before the commit.",
+        "stan": "PHPStan level 8.",
+        "style": "Pint, fixes the code style.",
+        "style:check": "Pint, as CI checks it.",
+        "test": "Pest: the whole suite, without network."
+    }
+}
