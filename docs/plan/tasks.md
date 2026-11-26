@@ -56,7 +56,8 @@ ids (Gn) in `docs/plan/decisions.md`.
   credential (tested with a marker key).
 
 ### LG-05 · Transport
-- Status: todo · Needs: LG-02
+- Status: done · Needs: LG-02
+- Note: G41: the observer criterion is shown in LG-07, where the adapter base calls the observer.
 - Scope: `src/Transport`: the `Transport` interface (send; send and read the body as a stream of chunks), neutral HTTP
   request and response values, a bridge to any PSR-18 client, the attempt observer (before and after each attempt:
   operation, attempt number, request, answer, outcome, duration; LR-30), and `src/Testing/FakeTransport` with scripted
@@ -75,6 +76,7 @@ ids (Gn) in `docs/plan/decisions.md`.
 
 ### LG-07 · The gateway interface, retries and streaming
 - Status: todo · Needs: LG-03, LG-04, LG-05, LG-06
+- Note: G41, extra acceptance carried over from LG-05: an observer that throws, before or after an attempt, does not change the result of the call. In tests, script a redirect as `willFail(Redirected)`; the fake transport returns a scripted 3xx as a normal response.
 - Note: From LG-04: the adapter base drops a provider code that equals the credential, clamps the HTTP status and the wait before it builds the gateway exception, marks parameters that hold a body or headers as sensitive, and builds every `detail` from fixed text, numbers and neutral names only.
 - Note: G34: `Preset` has a public constructor a host project can use; the constructor and protected methods of `AbstractAdapter` are extension points for adapters written outside the library.
 - Scope: the interface (LR-05); the adapter base that owns retries (LR-34, LR-35), timeouts (LR-36), attempt counting,
