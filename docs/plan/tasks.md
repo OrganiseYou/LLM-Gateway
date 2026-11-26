@@ -48,7 +48,7 @@ ids (Gn) in `docs/plan/decisions.md`.
   unreadable arguments is a value, not an exception (LR-17).
 
 ### LG-04 · Errors, capabilities, model info
-- Status: doing · Needs: LG-02
+- Status: done · Needs: LG-02
 - Scope: one exception class with the reasons of LR-32 as an enum, HTTP status, provider code (only when it matches
   `^[a-z0-9_.-]{1,64}$`), retry-after seconds, trace id; the capabilities value object (LR-10) with "native",
   "emulated", "none" for structured output and for a forced tool call (G16); model info (id, name, context length, aliases, deprecated).
@@ -75,6 +75,7 @@ ids (Gn) in `docs/plan/decisions.md`.
 
 ### LG-07 · The gateway interface, retries and streaming
 - Status: todo · Needs: LG-03, LG-04, LG-05, LG-06
+- Note: From LG-04: the adapter base drops a provider code that equals the credential, clamps the HTTP status and the wait before it builds the gateway exception, marks parameters that hold a body or headers as sensitive, and builds every `detail` from fixed text, numbers and neutral names only.
 - Note: G34: `Preset` has a public constructor a host project can use; the constructor and protected methods of `AbstractAdapter` are extension points for adapters written outside the library.
 - Scope: the interface (LR-05); the adapter base that owns retries (LR-34, LR-35), timeouts (LR-36), attempt counting,
   latency, trace ids and error mapping from HTTP status; the stream event types (LR-12) and a server-sent-events
