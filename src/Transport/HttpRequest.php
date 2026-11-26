@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace OrganiseYou\LlmGateway\Transport;
 
 use InvalidArgumentException;
+use OrganiseYou\LlmGateway\Contract\Internal\Rules;
 use OrganiseYou\LlmGateway\Contract\Secret;
 use SensitiveParameter;
 
@@ -16,8 +17,6 @@ use SensitiveParameter;
  */
 final readonly class HttpRequest
 {
-    private const string TOKEN = '/^[!#$%&\'*+.^_`|~0-9A-Za-z-]+$/D';
-
     /**
      * @param string $method GET or POST
      * @param string $url absolute, http or https, without user info and without a fragment
@@ -40,7 +39,7 @@ final readonly class HttpRequest
         if ($method !== 'GET' && $method !== 'POST') {
             throw new InvalidArgumentException('The method must be GET or POST.');
         }
-        if (! is_finite($timeoutSeconds) || $timeoutSeconds <= 0.0) {
+        if (! Rules::isTimeout($timeoutSeconds)) {
             throw new InvalidArgumentException('The timeout must be a finite number of seconds above 0.');
         }
 
@@ -178,7 +177,7 @@ final readonly class HttpRequest
         #[SensitiveParameter]
         array $seen,
     ): string {
-        if (! is_string($name) || preg_match(self::TOKEN, $name) !== 1) {
+        if (! is_string($name) || ! Rules::isHttpToken($name)) {
             throw new InvalidArgumentException('A header name must be an HTTP token.');
         }
 

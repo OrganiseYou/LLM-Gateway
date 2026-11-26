@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 use OrganiseYou\LlmGateway\Contract\Answer;
 use OrganiseYou\LlmGateway\Contract\Capabilities;
+use OrganiseYou\LlmGateway\Contract\CheckResult;
+use OrganiseYou\LlmGateway\Contract\CheckStatus;
+use OrganiseYou\LlmGateway\Contract\ConnectionReport;
 use OrganiseYou\LlmGateway\Contract\ContentPart;
 use OrganiseYou\LlmGateway\Contract\Credentials\BearerKey;
 use OrganiseYou\LlmGateway\Contract\Credentials\BearerToken;
@@ -19,6 +22,7 @@ use OrganiseYou\LlmGateway\Contract\Message;
 use OrganiseYou\LlmGateway\Contract\ModelInfo;
 use OrganiseYou\LlmGateway\Contract\Request;
 use OrganiseYou\LlmGateway\Contract\ResponseFormat;
+use OrganiseYou\LlmGateway\Contract\RetryPolicy;
 use OrganiseYou\LlmGateway\Contract\Role;
 use OrganiseYou\LlmGateway\Contract\StructuredIssue;
 use OrganiseYou\LlmGateway\Contract\StructuredIssueKind;
@@ -51,6 +55,9 @@ it('has only final readonly value classes', function (): void {
         BearerKey::class,
         HeaderKey::class,
         BearerToken::class,
+        RetryPolicy::class,
+        CheckResult::class,
+        ConnectionReport::class,
     ];
 
     foreach ($classes as $class) {
@@ -62,7 +69,7 @@ it('has only final readonly value classes', function (): void {
 });
 
 it('has only string-backed enums', function (): void {
-    $enums = [Role::class, ToolChoiceMode::class, FinishReason::class, StructuredIssueKind::class, ErrorReason::class, Support::class, CredentialKind::class];
+    $enums = [Role::class, ToolChoiceMode::class, FinishReason::class, StructuredIssueKind::class, ErrorReason::class, Support::class, CredentialKind::class, CheckStatus::class];
 
     foreach ($enums as $enum) {
         $reflection = new ReflectionEnum($enum);

@@ -6,6 +6,7 @@ namespace OrganiseYou\LlmGateway\Contract;
 
 use InvalidArgumentException;
 use LogicException;
+use OrganiseYou\LlmGateway\Contract\Internal\Rules;
 
 /**
  * One answer in the neutral shape.
@@ -45,7 +46,7 @@ final readonly class Answer
         if ($attempts < 1) {
             throw new InvalidArgumentException('The attempts must be 1 or more.');
         }
-        if (preg_match('/^[A-Za-z0-9_.:-]{1,128}$/D', $traceId) !== 1) {
+        if (! Rules::isTraceId($traceId)) {
             throw new InvalidArgumentException('The trace id must match ^[A-Za-z0-9_.:-]{1,128}$.');
         }
     }

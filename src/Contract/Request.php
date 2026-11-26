@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace OrganiseYou\LlmGateway\Contract;
 
 use InvalidArgumentException;
+use OrganiseYou\LlmGateway\Contract\Internal\Rules;
 
 /**
  * One completion request in the neutral shape. Tools and a response format may be given together; whether a
@@ -32,13 +33,13 @@ final readonly class Request
         public ?float $temperature = null,
         public ?string $traceId = null,
     ) {
-        if ($model === '' || preg_match('/\p{Cc}/u', $model) !== 0) {
+        if (! Rules::isModelName($model)) {
             throw new InvalidArgumentException('The model must not be empty and must not hold a control character.');
         }
 
         self::assertMessages($messages);
 
-        if (! is_finite($timeoutSeconds) || $timeoutSeconds <= 0.0) {
+        if (! Rules::isTimeout($timeoutSeconds)) {
             throw new InvalidArgumentException('The timeout must be a finite number of seconds above 0.');
         }
 
@@ -59,7 +60,7 @@ final readonly class Request
         if ($temperature !== null && (! is_finite($temperature) || $temperature < 0.0 || $temperature > 1.0)) {
             throw new InvalidArgumentException('The temperature must be between 0.0 and 1.0.');
         }
-        if ($traceId !== null && preg_match('/^[A-Za-z0-9_.:-]{1,128}$/D', $traceId) !== 1) {
+        if ($traceId !== null && ! Rules::isTraceId($traceId)) {
             throw new InvalidArgumentException('The trace id must match ^[A-Za-z0-9_.:-]{1,128}$.');
         }
     }

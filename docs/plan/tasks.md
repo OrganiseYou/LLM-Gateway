@@ -76,7 +76,7 @@ ids (Gn) in `docs/plan/decisions.md`.
   no secret (tested); nothing in `src/` reads the environment or a file (architecture test).
 
 ### LG-07 · The gateway interface, retries and streaming
-- Status: todo · Needs: LG-03, LG-04, LG-05, LG-06
+- Status: done · Needs: LG-03, LG-04, LG-05, LG-06
 - Note: From LG-06: catch exactly `TokenSupplierFailed` around `token()` and map it to `credentials_rejected`, not retried, without copying its text; let an `\Error` pass; the adapter base builds the sign-in header value as a `Secret`.
 - Note: G41, extra acceptance carried over from LG-05: an observer that throws, before or after an attempt, does not change the result of the call. In tests, script a redirect as `willFail(Redirected)`; the fake transport returns a scripted 3xx as a normal response.
 - Note: From LG-04: the adapter base drops a provider code that equals the credential, clamps the HTTP status and the wait before it builds the gateway exception, marks parameters that hold a body or headers as sensitive, and builds every `detail` from fixed text, numbers and neutral names only.
@@ -90,6 +90,7 @@ ids (Gn) in `docs/plan/decisions.md`.
 
 ### LG-08 · Structured answers
 - Status: todo · Needs: LG-03
+- Note: From LG-07: the adapter base calls the structured check itself, at the marked place in its private `finished()`; it is not a hook an adapter can override. An empty answer cut off at the token limit is returned, not thrown (G47), and must come out as "cut off at the token limit".
 - Scope: decode and check an answer against its JSON Schema with `opis/json-schema` (G13); reasons as
   "path: message"; "cut off at the token limit" from the finish reason; the shared helper adapters use to emulate
   structured output for a provider without it (schema in the instructions, then the same check).
@@ -98,6 +99,7 @@ ids (Gn) in `docs/plan/decisions.md`.
 
 ### LG-09 · The fake, the shared test set and the architecture tests
 - Status: todo · Needs: LG-07, LG-08
+- Note: From LG-07: the shared test set also checks what the adapter base does not enforce: the order of stream events, usage reported at most once, and a finished event whose text equals the text deltas.
 - Note: G34: add a preset and an adapter defined under `tests/`, outside `src/`, that pass the shared test set.
 - Scope: `src/Testing/FakeGateway` (scripted answers, tool calls, streams, failures; records the requests it got);
   `src/Testing/ContractTestCase`: the shared test set of LR-40, written once, that an adapter runs by supplying its
