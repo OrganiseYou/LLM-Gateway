@@ -112,7 +112,8 @@ ids (Gn) in `docs/plan/decisions.md`.
 ## S2 Providers read
 
 ### LG-10 · Read the documentation of the fifteen providers
-- Status: todo · Needs: LG-02
+- Status: done · Needs: LG-02
+- Note: Read on 2026-11-27. Most pages came through a reader that returns extracted text; `docs/providers/overview.md` section 5 lists per provider what could not be read. Open decision G59 and proposed decisions G60 and G62 come from this task.
 - Note: From LG-09: the provider-name list in `tests/Architecture/ProviderNamesTest.php` takes its model names from the overview file; revisit it when the provider files are written.
 - Scope: one file `docs/providers/<provider>.md` for each provider in G3, and
   `docs/providers/overview.md` with one row per provider: hosted chat API or not; API format; base URL; sign-in; tool
@@ -123,6 +124,7 @@ ids (Gn) in `docs/plan/decisions.md`.
 
 ### LG-11 · The adapter map
 - Status: todo · Needs: LG-10
+- Note: From LG-10: start from `docs/providers/overview.md` section 3 (thirteen topics the plan must decide). Eight provider files cite no requirement ids, so map those yourself. Known small faults in provider files are listed in the commit message of LG-10; the two oddly named LM Studio endpoints must be checked against the page before anything relies on them.
 - Scope: `docs/design/adapters.md`: which API formats exist among the fifteen, which preset uses which adapter, which
   credential kind each needs, which capabilities are native, emulated or absent per adapter. Then update this file:
   add, merge or drop adapter tasks LG-12 to LG-17 so they match (for example, Mistral as a preset on LG-12 instead of
@@ -188,6 +190,7 @@ its link, and its option not to store; a test builds a gateway from it with the 
 
 ### LG-18 · Presets: OpenAI Platform, Grok, Kimi, STACKIT
 - Status: todo · Needs: LG-12
+- Note: G59 (open): the OpenAI Platform preset waits for the decision on the Responses format; the other three presets of this task do not.
 
 ### LG-19 · Presets: Aleph Alpha (PhariaAI), LightOn (Paradigm), LM Studio, other OpenAI-compatible
 - Status: todo · Needs: LG-12
@@ -204,6 +207,7 @@ its link, and its option not to store; a test builds a gateway from it with the 
 
 ### LG-21 · Presets: Claude, Gemini and Vertex AI, Cohere, Mistral, Microsoft Copilot / Azure OpenAI
 - Status: todo · Needs: LG-13, LG-14, LG-15, LG-16, LG-17
+- Note: G60: add the catalogue `Preset\Presets` (all shipped presets, find one by id) with a test that every preset of LG-18 to LG-21 is in it and every id is unique.
 - Scope: one preset each; Gemini with a key and Vertex AI with a Google Cloud project are two entries of the same
   provider if LG-10 found both. The Microsoft preset states what LG-10 found about Copilot having a model API or not.
 
@@ -247,6 +251,7 @@ its link, and its option not to store; a test builds a gateway from it with the 
 
 ### LG-26 · Documentation
 - Status: todo · Needs: LG-22, LG-23, LG-24
+- Note: G60: the README shows how to list the providers (the preset catalogue) and then the models of one provider (`models()`), as the two steps of a "choose provider and model" screen.
 - Note: G34: the README has a section "A new model or provider that the library does not know yet", with the three cases and a runnable example of a preset and an adapter in the host project.
 - Scope: `README.md` (LR-45): install, the first call, streaming, tools and the loop, structured output, errors,
   capabilities, writing a transport, the fake in tests, adding a preset, adding an adapter; a table of the presets
