@@ -30,7 +30,7 @@ ids (Gn) in `docs/plan/decisions.md`.
 - Acceptance: `composer install` and `composer check` succeed on an empty `src/`; one placeholder Pest test passes.
 
 ### LG-02 · Design the contract
-- Status: todo · Needs: LG-01
+- Status: done · Needs: LG-01
 - Scope: write `docs/design/contract.md`: the interface with its five operations (LR-05), every value object with its
   fields and validation (LR-06, LR-07), the neutral ranges (LR-08), the capability list (LR-10), the stream events
   (LR-12), the error reasons (LR-32), the credential kinds (LR-24), `Transport` and the attempt observer (LR-28 to
