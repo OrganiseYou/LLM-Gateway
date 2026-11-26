@@ -5,17 +5,21 @@ declare(strict_types=1);
 namespace OrganiseYou\LlmGateway\Tests\Support;
 
 use OrganiseYou\LlmGateway\Adapter\Shared\AbstractAdapter;
+use OrganiseYou\LlmGateway\Adapter\Shared\StructuredOutputEmulation;
 use OrganiseYou\LlmGateway\Contract\Answer;
 use OrganiseYou\LlmGateway\Contract\Capabilities;
 use OrganiseYou\LlmGateway\Contract\ErrorReason;
 use OrganiseYou\LlmGateway\Contract\FinishReason;
 use OrganiseYou\LlmGateway\Contract\ModelInfo;
 use OrganiseYou\LlmGateway\Contract\Request;
+use OrganiseYou\LlmGateway\Contract\Role;
 use OrganiseYou\LlmGateway\Contract\Stream\StreamFinished;
 use OrganiseYou\LlmGateway\Contract\Stream\TextDelta;
 use OrganiseYou\LlmGateway\Contract\Stream\ToolCallCompleted;
 use OrganiseYou\LlmGateway\Contract\Stream\ToolCallStarted;
 use OrganiseYou\LlmGateway\Contract\Stream\UsageReported;
+use OrganiseYou\LlmGateway\Contract\StructuredIssue;
+use OrganiseYou\LlmGateway\Contract\StructuredIssueKind;
 use OrganiseYou\LlmGateway\Contract\StructuredResult;
 use OrganiseYou\LlmGateway\Contract\Support;
 use OrganiseYou\LlmGateway\Contract\ToolCall;
@@ -34,7 +38,9 @@ use SensitiveParameter;
  * error is {"fault": {"code", "wait"}}; a stream has the events say, call_open, call, used, end and fault; the
  * models are GET /catalog with {"items": [{"key", "title", "window"}]}.
  *
- * What a server of this format can do is told by the adapter options of the preset.
+ * What a server of this format can do is told by the adapter options of the preset. With the option "structured" as
+ * "emulated" the server takes no "shape": the adapter puts the schema in the system text instead. A body with
+ * "shaped" stands for a format that gets the structured answer its own way: "shaped_issue" makes it an unusable one.
  */
 final readonly class TalkAdapter extends AbstractAdapter
 {
@@ -68,9 +74,22 @@ final readonly class TalkAdapter extends AbstractAdapter
             }
         }
 
+        // A server without structured output of its own: the schema goes into the system text, as the last of it.
+        $emulated = $request->responseFormat !== null && $this->support('structured') === Support::Emulated;
+        $instructions = $request->responseFormat !== null && $emulated
+            ? ['who' => Role::System->value, 'say' => (new StructuredOutputEmulation())->instructions($request->responseFormat)]
+            : null;
+
         $lines = [];
         foreach ($request->messages as $message) {
+            if ($instructions !== null && $message->role !== Role::System) {
+                $lines[] = $instructions;
+                $instructions = null;
+            }
             $lines[] = ['who' => $message->role->value, 'say' => $message->text()];
+        }
+        if ($instructions !== null) {
+            $lines[] = $instructions;
         }
 
         $foreign = $this->option('foreign_url', '');
@@ -87,7 +106,7 @@ final readonly class TalkAdapter extends AbstractAdapter
                 'stream' => $stream,
                 'lines' => $lines,
                 'tools' => array_map(fn($tool): string => $tool->name, $request->tools),
-                'shape' => $request->responseFormat?->name,
+                'shape' => $emulated ? null : $request->responseFormat?->name,
                 'dialect' => $this->setting('dialect'),
             ]),
         );
@@ -110,7 +129,7 @@ final readonly class TalkAdapter extends AbstractAdapter
             self::usage($body['used'] ?? null),
             self::textIn($body, 'by'),
             // A format that gets the structured answer its own way hands the result to answer().
-            is_array($body['shaped'] ?? null) ? new StructuredResult($body['shaped'], []) : null,
+            is_array($body['shaped'] ?? null) ? new StructuredResult($body['shaped'], self::issues($body['shaped_issue'] ?? null)) : null,
         );
     }
 
@@ -292,6 +311,14 @@ final readonly class TalkAdapter extends AbstractAdapter
         return is_array($arguments) && ($arguments === [] || ! array_is_list($arguments))
             ? ToolCall::decoded($id, self::textIn($call, 'tool'), $arguments, $raw)
             : ToolCall::unreadable($id, self::textIn($call, 'tool'), 'the arguments are not a JSON object', $raw);
+    }
+
+    /**
+     * @return list<StructuredIssue>
+     */
+    private static function issues(#[SensitiveParameter] mixed $issue): array
+    {
+        return is_string($issue) && $issue !== '' ? [new StructuredIssue(StructuredIssueKind::SchemaMismatch, $issue, '/')] : [];
     }
 
     private static function finishReason(string $end): FinishReason

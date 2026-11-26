@@ -103,6 +103,55 @@ function connectionOpeners(string $code): array
 }
 
 /**
+ * The places in a piece of PHP code that give the JSON Schema validator a way to fetch a schema: a resolver, a file,
+ * a folder or a protocol registered for references, or a validator built without a loader, which then makes its own
+ * resolver. Without one of these a reference to another document is never followed.
+ *
+ * @return list<string> one line per finding, with the line number in the code
+ */
+function schemaFetchers(string $code): array
+{
+    // Methods of the validator, its loader and its resolver that name a source of schemas or validate by address.
+    $methods = [
+        'setresolver', 'registerfile', 'registerprefix', 'registerprotocol', 'registerprotocoldir', 'registerraw',
+        'setbaseuri', 'urivalidation', 'loadschemabyid',
+    ];
+
+    $tokens = SourceCode::tokens($code);
+
+    $found = [];
+    foreach ($tokens as $index => $token) {
+        $previous = $tokens[$index - 1] ?? null;
+        $next = $tokens[$index + 1] ?? null;
+
+        if ($token->is([T_STRING, T_NAME_QUALIFIED, T_NAME_FULLY_QUALIFIED]) && SourceCode::shortName($token->text) === 'schemaresolver') {
+            $found[] = 'line ' . $token->line . ': ' . $token->text;
+
+            continue;
+        }
+
+        if ($token->is(T_NEW) && $next !== null && $next->is([T_STRING, T_NAME_QUALIFIED, T_NAME_FULLY_QUALIFIED])
+            && str_ends_with(SourceCode::shortName($next->text), 'validator')) {
+            $open = $tokens[$index + 2] ?? null;
+            $first = $tokens[$index + 3] ?? null;
+            if ($open === null || $open->text !== '(' || $first === null || $first->text === ')' || strtolower($first->text) === 'null') {
+                $found[] = 'line ' . $token->line . ': new ' . $next->text . ' without a loader';
+            }
+
+            continue;
+        }
+
+        if ($token->is(T_STRING) && $next !== null && $next->text === '('
+            && $previous !== null && $previous->is([T_OBJECT_OPERATOR, T_NULLSAFE_OBJECT_OPERATOR, T_DOUBLE_COLON])
+            && in_array(strtolower($token->text), $methods, true)) {
+            $found[] = 'line ' . $token->line . ': ->' . $token->text . '()';
+        }
+    }
+
+    return $found;
+}
+
+/**
  * What the library itself may require: the interfaces say how to talk to a client, no package is one.
  */
 function requiredPackageIsAllowed(string $package): bool
@@ -227,6 +276,55 @@ it('does not flag code that opens nothing', function (string $code): void {
     'a call through a variable, which the rule leaves alone' => ['$function($url); $object->$method($url);'],
     'a file info object, which opens nothing' => ['$info = new SplFileInfo($path); $other = new DOMException();'],
     'the PSR-18 interface as a type' => ['function send(ClientInterface $client, Client $other): void {}'],
+]);
+
+it('gives the JSON Schema validator no way to fetch a schema anywhere in src', function (): void {
+    $src = dirname(__DIR__, 2) . '/src';
+    $findings = [];
+    $builds = 0;
+
+    foreach (SourceCode::phpFilesUnder($src) as $path) {
+        $code = (string) file_get_contents($path);
+        $builds += (int) preg_match_all('/\bnew \w*Validator\(/', $code);
+        foreach (schemaFetchers($code) as $finding) {
+            $findings[] = substr($path, strlen($src) + 1) . ' ' . $finding;
+        }
+    }
+
+    expect($builds)->toBeGreaterThan(0, 'the rule must have found the place where the validator is built')
+        ->and($findings)->toBe([]);
+});
+
+it('catches code that gives the validator a way to fetch a schema', function (string $code, string $finding): void {
+    expect(schemaFetchers("<?php\n" . $code))->toBe(['line 2: ' . $finding]);
+})->with([
+    'a validator without a loader' => ['$validator = new Validator();', 'new Validator without a loader'],
+    'a validator without parentheses' => ['$validator = new Validator;', 'new Validator without a loader'],
+    'a validator with null as its loader' => ['$validator = new Validator(null, 5);', 'new Validator without a loader'],
+    'a class that extends the validator, without a loader' => ['$validator = new LoopGuardValidator();', 'new LoopGuardValidator without a loader'],
+    'a validator by its full name' => ['$validator = new \Opis\JsonSchema\Validator();', 'new \Opis\JsonSchema\Validator without a loader'],
+    'a resolver' => ['$loader = new SchemaLoader($parser, new SchemaResolver(), false);', 'SchemaResolver'],
+    'a resolver that is imported' => ['use Opis\JsonSchema\Resolvers\SchemaResolver;', 'Opis\JsonSchema\Resolvers\SchemaResolver'],
+    'a resolver set later' => ['$loader->setResolver($resolver);', '->setResolver()'],
+    'a file registered for an address' => ['$validator->resolver()->registerFile($id, $path);', '->registerFile()'],
+    'a folder registered for a prefix' => ['$resolver->registerPrefix("https://schemas.example.test/", $folder);', '->registerPrefix()'],
+    'a protocol registered for references' => ['$resolver->registerProtocol("https", $fetch);', '->registerProtocol()'],
+    'a folder registered for a protocol' => ['$resolver->registerProtocolDir("https", "schemas.example.test", $folder);', '->registerProtocolDir()'],
+    'a schema registered for an address' => ['$resolver->registerRaw($schema, $id);', '->registerRaw()'],
+    'a base address for relative references' => ['$loader->setBaseUri($uri);', '->setBaseUri()'],
+    'a check against a schema named by its address' => ['$error = $validator->uriValidation($data, $uri);', '->uriValidation()'],
+    'a schema loaded by its address' => ['$schema = $loader->loadSchemaById($uri);', '->loadSchemaById()'],
+]);
+
+it('does not flag a validator that is given a loader without a resolver', function (string $code): void {
+    expect(schemaFetchers("<?php\n" . $code))->toBe([]);
+})->with([
+    'the way the library builds it' => ['$validator = new Validator(new SchemaLoader($parser, null, false), PHP_INT_MAX, false);'],
+    'a loader in a variable' => ['$validator = new Validator($loader);'],
+    'a class that extends the validator, with a loader' => ['$validator = new LoopGuardValidator(self::loader(), 1, true, 10, 20);'],
+    'a comment and a string that name a resolver' => ['// no SchemaResolver here' . "\n" . '$rule = "new Validator() and registerFile()";'],
+    'a method of that name declared by another class' => ['interface Files { public function registerFile(string $name): void; }'],
+    'a class whose name only holds the word' => ['$a = new ValidatorFactory(); $b = new SchemaResolverList;'],
 ]);
 
 it('requires no HTTP client: only PHP, the PSR interfaces and the JSON Schema checker', function (): void {

@@ -473,10 +473,13 @@ describe('the place of the structured check', function (): void {
         expect(Talk::gateway($transport)->complete(Talk::request())->structured)->toBeNull();
     });
 
-    it('gives no structured result until the checker exists', function (): void {
+    it('checks the text itself when the adapter gave no structured result', function (): void {
         $transport = (new FakeTransport())->willReturn(Talk::answered('{"ok":true}'));
 
-        expect(Talk::gateway($transport)->complete(Talk::request()->withResponseFormat(talkFormat()))->structured)->toBeNull();
+        $structured = Talk::gateway($transport)->complete(Talk::request()->withResponseFormat(talkFormat()))->structured;
+
+        expect($structured?->isUsable())->toBeTrue()
+            ->and($structured?->data)->toBe(['ok' => true]);
     });
 });
 
