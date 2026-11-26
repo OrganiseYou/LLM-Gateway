@@ -89,7 +89,7 @@ ids (Gn) in `docs/plan/decisions.md`.
   stream that breaks after the first event reports `failed` and is not retried.
 
 ### LG-08 · Structured answers
-- Status: todo · Needs: LG-03
+- Status: done · Needs: LG-03
 - Note: From LG-07: the adapter base calls the structured check itself, at the marked place in its private `finished()`; it is not a hook an adapter can override. An empty answer cut off at the token limit is returned, not thrown (G47), and must come out as "cut off at the token limit".
 - Scope: decode and check an answer against its JSON Schema with `opis/json-schema` (G13); reasons as
   "path: message"; "cut off at the token limit" from the finish reason; the shared helper adapters use to emulate
@@ -99,6 +99,7 @@ ids (Gn) in `docs/plan/decisions.md`.
 
 ### LG-09 · The fake, the shared test set and the architecture tests
 - Status: todo · Needs: LG-07, LG-08
+- Note: From LG-08: the fake runs the same structured check; a gateway exception the checker throws carries a placeholder trace id that the fake must replace with the call's, as the adapter base does. An answer that holds tool calls has no structured result (G53).
 - Note: From LG-07: the shared test set also checks what the adapter base does not enforce: the order of stream events, usage reported at most once, and a finished event whose text equals the text deltas.
 - Note: G34: add a preset and an adapter defined under `tests/`, outside `src/`, that pass the shared test set.
 - Scope: `src/Testing/FakeGateway` (scripted answers, tool calls, streams, failures; records the requests it got);
@@ -208,6 +209,7 @@ its link, and its option not to store; a test builds a gateway from it with the 
 
 ### LG-22 · The tool loop
 - Status: todo · Needs: LG-09
+- Note: G53: an answer that asks for tool calls has no structured result; only the final answer is checked. A check that goes over its limits comes back as an unusable result, not an exception (G52).
 - Scope: `src/Loop` (LR-14 to LR-17): calls the model, hands each tool call to the caller's executor, feeds results
   back, stops at an answer or at the caller's limits (rounds, tool calls; no defaults); events for every step; an
   unknown tool name or unreadable arguments go back to the model as a readable error; a final structured answer is

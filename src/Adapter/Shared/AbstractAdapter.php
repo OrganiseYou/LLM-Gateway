@@ -56,7 +56,8 @@ use Throwable;
 /**
  * Everything that is the same for every format: the deadline, the retries, the count of attempts, the latency, the
  * trace id, the reports to the observer, the mapping of a failure to its reason, the refusal of what a model cannot
- * do, the sign-in headers and the stream of one event for a format without streaming.
+ * do, the sign-in headers, the check of a structured answer and the stream of one event for a format without
+ * streaming.
  *
  * An adapter for one format extends this class and writes the abstract methods. The class is readonly, so an
  * adapter is readonly too: it keeps nothing between two calls. The constructor is final: a gateway is always built
@@ -476,7 +477,7 @@ abstract readonly class AbstractAdapter implements Gateway
      * The answer of the adapter with what only the base knows.
      *
      * @throws GatewayException provider_error, when the answer has no text and no tool call and was not cut off at
-     *                          the token limit
+     *                          the token limit; rejected, when the schema of the response format cannot be used
      */
     private function finished(
         #[SensitiveParameter]
@@ -491,10 +492,16 @@ abstract readonly class AbstractAdapter implements Gateway
             throw $this->failure(ErrorReason::ProviderError, 'the answer has no text and no tool call');
         }
 
-        // The place of the structured check. When the request has a response format and the adapter gave no result
-        // of its own, the structured-answer checker is asked here, with the text, the format and the finish reason
-        // of the answer. Until that checker exists such an answer carries no structured result.
-        $structured = $request->responseFormat === null ? null : $answer->structured;
+        // The place of the structured check. An answer has a structured result when its request has a response
+        // format and the answer asks for no tool call: an answer that asks for tool calls is not the final answer,
+        // and its text is not checked. A result the adapter got its own way (a forced tool call) is kept as it is
+        // and not checked again; otherwise the text of the answer is checked here. A schema the validator cannot
+        // use is thrown as rejected and takes the way of every error an adapter raises while it reads a response.
+        $structured = null;
+        if ($request->responseFormat !== null && $answer->toolCalls === []) {
+            $structured = $answer->structured
+                ?? (new StructuredAnswerChecker())->check($answer->text, $request->responseFormat, $answer->finishReason);
+        }
 
         return new Answer(
             $answer->text,
