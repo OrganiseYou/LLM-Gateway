@@ -315,7 +315,7 @@ describe('HttpRequest', function (): void {
         expect($sensitive)->toBe(['url', 'headers', 'secretHeaders', 'body']);
     });
 
-    it('keeps nothing of a refused request in the refusal', function (string $ignoreArgs, string $case): void {
+    it('keeps nothing of a refused request in the refusal', function (bool $ignoreArgs, string $case): void {
         // Built without a helper in between: the arguments of a caller's own function are the caller's to guard.
         $url = 'https://api.example.test/v1/chat';
         $build = match ($case) {
@@ -343,7 +343,7 @@ describe('HttpRequest', function (): void {
 
             throw new LogicException('The request was accepted.');
         });
-    })->with(['arguments kept' => ['0'], 'arguments left out' => ['1']])->with([
+    })->with(['arguments kept' => [false], 'arguments left out' => [true]])->with([
         'a key as a plain secret header',
         'a key in a header with a line break',
         'a secret with a line break',

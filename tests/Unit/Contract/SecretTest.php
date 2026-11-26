@@ -94,7 +94,7 @@ describe('Secret', function (): void {
     });
 
     it('hides the argument of its constructor in the trace of its refusal', function (): void {
-        withExceptionIgnoreArgs('0', function (): void {
+        withExceptionIgnoreArgs(false, function (): void {
             try {
                 new Secret('');
             } catch (InvalidArgumentException $exception) {
@@ -111,7 +111,7 @@ describe('Secret', function (): void {
         });
     });
 
-    it('does not show the value in the trace of an exception made while a secret is an argument', function (string $ignoreArgs): void {
+    it('does not show the value in the trace of an exception made while a secret is an argument', function (bool $ignoreArgs): void {
         withExceptionIgnoreArgs($ignoreArgs, function (): void {
             $fail = fn(Secret $key, array $headers): RuntimeException => new RuntimeException('failed');
 
@@ -121,7 +121,7 @@ describe('Secret', function (): void {
             expect($exception->getTrace())->not->toBe([]);
             expectNoMarker(exceptionForms($exception));
         });
-    })->with(['arguments kept' => ['0'], 'arguments left out' => ['1']]);
+    })->with(['arguments kept' => [false], 'arguments left out' => [true]]);
 });
 
 describe('Operation', function (): void {

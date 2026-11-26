@@ -258,7 +258,7 @@ describe('FakeTransport', function (): void {
         expectNoMarker($forms);
     });
 
-    it('does not show a secret header in a failure it throws, whatever PHP keeps of arguments', function (string $ignoreArgs): void {
+    it('does not show a secret header in a failure it throws, whatever PHP keeps of arguments', function (bool $ignoreArgs): void {
         withExceptionIgnoreArgs($ignoreArgs, function (): void {
             $transport = (new FakeTransport())->willFail(TransportFailure::ConnectionFailed);
             $thrown = [fakeFailureOf(fn() => $transport->send(fakeRequest()))];
@@ -274,5 +274,5 @@ describe('FakeTransport', function (): void {
                 expectNoMarker(exceptionForms($exception));
             }
         });
-    })->with(['arguments kept' => ['0'], 'arguments left out' => ['1']]);
+    })->with(['arguments kept' => [false], 'arguments left out' => [true]]);
 });

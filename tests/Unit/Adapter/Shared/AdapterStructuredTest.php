@@ -349,7 +349,7 @@ describe('a response schema the validator cannot use', function (): void {
     });
 
     it('leaves nothing of the answer or the schema in the error, in any output form', function (): void {
-        foreach (['0', '1'] as $ignoreArgs) {
+        foreach ([false, true] as $ignoreArgs) {
             withExceptionIgnoreArgs($ignoreArgs, function (): void {
                 $format = new ResponseFormat(JsonSchema::fromJson('{"type":"object","properties":{"' . LEAK_MARKER . '":{"type":[null]}}}'));
                 $text = '{"' . LEAK_MARKER . '":"' . LEAK_MARKER . '"}';

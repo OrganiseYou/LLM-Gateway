@@ -228,7 +228,7 @@ function leakOf(string $scenario): array
 
 describe('what leaves complete(), stream() and models()', function (): void {
     it('holds no key, no response body and no response header, in any output form', function (string $scenario, string $whatLeft): void {
-        foreach (['0', '1'] as $ignoreArgs) {
+        foreach ([false, true] as $ignoreArgs) {
             withExceptionIgnoreArgs($ignoreArgs, function () use ($scenario, $whatLeft): void {
                 [$left, $forms] = leakOf($scenario);
 
@@ -288,7 +288,7 @@ describe('what leaves complete(), stream() and models()', function (): void {
     });
 
     it('keeps the credentials out of the refusal of a gateway that cannot be built', function (): void {
-        withExceptionIgnoreArgs('0', function (): void {
+        withExceptionIgnoreArgs(false, function (): void {
             try {
                 GatewayFactory::create(Talk::preset(), new BearerKey(LEAK_MARKER), new FakeTransport(), new GatewayConfig(RetryPolicy::none(), null, ['unknown' => 'x']));
                 $refusal = null;

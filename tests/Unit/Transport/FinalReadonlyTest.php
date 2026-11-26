@@ -95,7 +95,7 @@ it('marks every parameter that carries a header, a body or a secret as sensitive
 ]);
 
 it('keeps the arguments of a refused stream response and a refused scripted stream out of the refusal', function (): void {
-    withExceptionIgnoreArgs('0', function (): void {
+    withExceptionIgnoreArgs(false, function (): void {
         $refusals = [];
         foreach ([
             fn() => new HttpStreamResponse(700, ['Set-Cookie' => LEAK_MARKER], [LEAK_MARKER]),

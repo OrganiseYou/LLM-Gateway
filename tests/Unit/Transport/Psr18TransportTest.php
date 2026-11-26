@@ -278,7 +278,7 @@ describe('Psr18Transport', function (): void {
         expectNoMarker(exceptionForms($exception));
     });
 
-    it('does not show a secret header in any failure it throws, whatever PHP keeps of arguments', function (string $ignoreArgs): void {
+    it('does not show a secret header in any failure it throws, whatever PHP keeps of arguments', function (bool $ignoreArgs): void {
         withExceptionIgnoreArgs($ignoreArgs, function (): void {
             // The marker is in the secret header of the request only, and the client keeps no request: whatever
             // the printed trace then shows of the marker, the bridge put there.
@@ -307,9 +307,9 @@ describe('Psr18Transport', function (): void {
                 expectNoMarker(exceptionForms($exception));
             }
         });
-    })->with(['arguments kept' => ['0'], 'arguments left out' => ['1']]);
+    })->with(['arguments kept' => [false], 'arguments left out' => [true]]);
 
-    it('replaces an error of the client by a new error that holds nothing of it, in its whole trace', function (string $ignoreArgs): void {
+    it('replaces an error of the client by a new error that holds nothing of it, in its whole trace', function (bool $ignoreArgs): void {
         withExceptionIgnoreArgs($ignoreArgs, function (): void {
             // The client fails inside its own call, so its frame holds the request with the revealed header.
             $client = new RecordingPsr18Client([
@@ -328,10 +328,10 @@ describe('Psr18Transport', function (): void {
                 expect($classes)->not->toContain(RecordingPsr18Client::class);
             }
         });
-    })->with(['arguments kept' => ['0'], 'arguments left out' => ['1']]);
+    })->with(['arguments kept' => [false], 'arguments left out' => [true]]);
 
     it('proves the test above: the error of the client itself holds the secret header in its trace', function (): void {
-        withExceptionIgnoreArgs('0', function (): void {
+        withExceptionIgnoreArgs(false, function (): void {
             $client = new RecordingPsr18Client(['POST ' . BRIDGE_URL => fn(RequestInterface $request): never => throw new TypeError('a fault')], record: false);
             $request = (new Psr17Factory())->createRequest('POST', BRIDGE_URL)->withHeader('Authorization', 'Bearer ' . LEAK_MARKER);
 
@@ -366,7 +366,7 @@ describe('Psr18Transport', function (): void {
         expect(transportFailureOf(fn() => bridge($client)->send(bridgeRequest()))->failure)->toBe(TransportFailure::ConnectionFailed);
     });
 
-    it('replaces an error of the message classes by a new error that holds nothing of it', function (string $ignoreArgs): void {
+    it('replaces an error of the message classes by a new error that holds nothing of it', function (bool $ignoreArgs): void {
         withExceptionIgnoreArgs($ignoreArgs, function (): void {
             $client = new RecordingPsr18Client([], record: false);
             $faulty = new class implements RequestFactoryInterface {
@@ -389,7 +389,7 @@ describe('Psr18Transport', function (): void {
                 ->and($left->getPrevious())->toBeNull();
             expectNoMarker(exceptionForms($left));
         });
-    })->with(['arguments kept' => ['0'], 'arguments left out' => ['1']]);
+    })->with(['arguments kept' => [false], 'arguments left out' => [true]]);
 
     it('turns any exception of the body into connection_failed, whatever its class, and closes the body', function (string $method): void {
         $body = new ScriptedBody(['data: one'], faults: [$method => new LogicException('broken: ' . LEAK_MARKER)], position: $method === 'read' ? null : 5);

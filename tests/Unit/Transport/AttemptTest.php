@@ -93,7 +93,7 @@ describe('TransportException', function (): void {
             ->and($exception->getPrevious())->toBe($previous);
     });
 
-    it('does not show a secret header of a request that is on the stack when it is made', function (string $ignoreArgs): void {
+    it('does not show a secret header of a request that is on the stack when it is made', function (bool $ignoreArgs): void {
         withExceptionIgnoreArgs($ignoreArgs, function (): void {
             $send = fn(HttpRequest $request): TransportException => new TransportException(TransportFailure::ConnectionFailed);
 
@@ -102,7 +102,7 @@ describe('TransportException', function (): void {
             expect($exception->getTrace())->not->toBe([]);
             expectNoMarker(exceptionForms($exception));
         });
-    })->with(['arguments kept' => ['0'], 'arguments left out' => ['1']]);
+    })->with(['arguments kept' => [false], 'arguments left out' => [true]]);
 });
 
 describe('AttemptStarted', function (): void {

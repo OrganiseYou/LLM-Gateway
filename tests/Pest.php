@@ -56,20 +56,47 @@ function exceptionForms(Throwable $exception): array
 }
 
 /**
- * Runs a test with PHP keeping ("0") or leaving out ("1") the arguments of calls in the traces of exceptions.
+ * Runs a test with PHP leaving out (true) or keeping (false) the arguments of calls in the traces of exceptions.
  *
+ * Both settings that decide what a trace shows are set here, so the test sees the same on every machine. The
+ * php.ini of the machine does not: php.ini-production leaves the arguments out and cuts a string argument in the
+ * string form of a trace to nothing (zend.exception_string_param_max_len = 0), where PHP without a php.ini and
+ * php.ini-development show its first 15 bytes.
+ *
+ * @param bool $ignoreArgs zend.exception_ignore_args for the test
  * @param callable(): void $test
+ * @param int $stringLength how many bytes of a string argument the string form of a trace shows: PHP's own default
+ *                          of 15, or another length for a test of that setting
  */
-function withExceptionIgnoreArgs(string $value, callable $test): void
+function withExceptionIgnoreArgs(bool $ignoreArgs, callable $test, int $stringLength = 15): void
 {
-    $before = ini_set('zend.exception_ignore_args', $value);
+    if ($stringLength < 0) {
+        throw new InvalidArgumentException('The length of a string argument in a trace cannot be negative.');
+    }
+
+    $before = ini_set('zend.exception_ignore_args', $ignoreArgs ? '1' : '0');
     expect($before)->not->toBeFalse('zend.exception_ignore_args could not be set');
+    $lengthBefore = ini_set('zend.exception_string_param_max_len', (string) $stringLength);
+    expect($lengthBefore)->not->toBeFalse('zend.exception_string_param_max_len could not be set');
 
     try {
         $test();
     } finally {
+        // Put back exactly what ini_set() returned.
         ini_set('zend.exception_ignore_args', (string) $before);
+        ini_set('zend.exception_string_param_max_len', (string) $lengthBefore);
     }
+}
+
+/**
+ * Whether a text holds the marker, for a test that proves the marker IS somewhere. Use this with `toBeTrue()` and
+ * not `->toContain(LEAK_MARKER)`: a failure of that expectation carries the marker in its message, the runner keeps
+ * the message, and every later test that prints a whole trace with its arguments then finds the marker in the
+ * runner's own frames and fails too, which hides the one test that really failed.
+ */
+function holdsMarker(string $text, string $marker = LEAK_MARKER): bool
+{
+    return str_contains($text, $marker);
 }
 
 /**
