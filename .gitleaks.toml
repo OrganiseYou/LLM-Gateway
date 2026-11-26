@@ -1,0 +1,11 @@
+title = "llm-gateway"
+
+# The default gitleaks rules, plus one exception: the marker that the tests use as a stand-in for a key.
+# It is not a key; every adapter test searches its output for it to prove that no credential leaks.
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "The synthetic test key marker"
+regexTarget = "match"
+regexes = ['''sk-test-MARKER-do-not-leak''']

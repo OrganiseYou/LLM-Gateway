@@ -21,7 +21,7 @@ ids (Gn) in `docs/plan/decisions.md`.
 ## S1 Contract
 
 ### LG-01 · Repository skeleton
-- Status: todo · Needs: none
+- Status: done · Needs: none
 - Scope: `composer.json` (G5, G6, G7; `require`: php, `psr/http-client`, `psr/http-factory`, `psr/http-message`,
   `opis/json-schema`; `require-dev`: Pest 4, PHPStan, Pint, `guzzlehttp/guzzle`, `nyholm/psr7`), the scripts in
   the project guide ("Commands"), the folders of "Layout", `LICENSE` (MIT), `README.md` (one paragraph), `CHANGELOG.md`,
