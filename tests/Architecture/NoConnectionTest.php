@@ -377,6 +377,7 @@ function testFilesThatReadFilesOfTheRepository(): array
         'Support/ChatCompletionsFixtures.php' => 'reads the hand-written fixtures under tests/fixtures/openai-compatible',
         'Support/MessagesFixtures.php' => 'reads the hand-written fixtures under tests/fixtures/anthropic',
         'Support/GenerateContentFixtures.php' => 'reads the hand-written fixtures under tests/fixtures/gemini',
+        'Support/ChatV2Fixtures.php' => 'reads the hand-written fixtures under tests/fixtures/cohere',
         'Support/ReadmeSamples.php' => 'reads README.md, whose samples the tests under tests/Readme execute',
     ];
 }

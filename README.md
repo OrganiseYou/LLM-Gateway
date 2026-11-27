@@ -19,9 +19,10 @@ What works today:
 - the check of a structured answer against its JSON Schema;
 - `Testing\FakeGateway`, a gateway for your tests;
 - `Testing\ContractTestCase`, the shared test set every adapter must pass;
-- three shipped adapters, each with its model list: `Adapter\OpenAiCompatible\ChatCompletionsAdapter`, for the
-  chat-completions format that many servers speak, `Adapter\Anthropic\MessagesAdapter`, for the Messages format, and
-  `Adapter\Gemini\GenerateContentAdapter`, for the generate-content format.
+- four shipped adapters, each with its model list: `Adapter\OpenAiCompatible\ChatCompletionsAdapter`, for the
+  chat-completions format that many servers speak, `Adapter\Anthropic\MessagesAdapter`, for the Messages format,
+  `Adapter\Gemini\GenerateContentAdapter`, for the generate-content format, and `Adapter\Cohere\ChatV2Adapter`, for
+  the Chat v2 format.
   See [The shipped adapters](#the-shipped-adapters).
 
 What is coming, and is **not built yet**:
@@ -33,7 +34,7 @@ What is coming, and is **not built yet**:
 - the tool loop (`src/Loop`): today you write the loop yourself, as shown under [Tools](#tools);
 - the connection check: `Gateway::check()` exists, but a gateway built on the adapter base answers `not_supported`
   for now;
-- model lists for the other shipped adapters: `Gateway::models()` works for the three shipped adapters and for an
+- model lists for the other shipped adapters: `Gateway::models()` works for the four shipped adapters and for an
   adapter you write yourself.
 
 So today you can use the library in three ways: with the fake gateway, with a shipped adapter and a preset
@@ -610,7 +611,7 @@ $chosen = Presets::find('the-id-the-customer-chose');
 A preset you made yourself is not in that catalogue. Keep your own next to it in your own list.
 
 **Step 2: ask the chosen provider for its models.** `Gateway::models()` exists. It needs that customer's credentials
-and it sends a request, so it takes a timeout and can fail like any call. The three shipped adapters read it; the
+and it sends a request, so it takes a timeout and can fail like any call. The four shipped adapters read it; the
 other adapters will follow. The fake shows the shape. Runs today.
 
 <!-- example: runs -->
@@ -653,8 +654,8 @@ For a model it does not know, `capabilities()` answers with the defaults of its 
 
 Build your own `Preset` object in your own code. A preset is data: no class to write.
 
-A preset must name an adapter class. Three shipped adapters exist today, for the chat-completions format, for the
-Messages format and for the generate-content format; the others are not built yet (see [The shipped adapters](#the-shipped-adapters)). In the sample `KnownFormatAdapter` is a
+A preset must name an adapter class. Four shipped adapters exist today, for the chat-completions format, for the
+Messages format, for the generate-content format and for the Chat v2 format; the others are not built yet (see [The shipped adapters](#the-shipped-adapters)). In the sample `KnownFormatAdapter` is a
 placeholder for the shipped adapter of your format: write the class of that adapter in its place, or an adapter you
 wrote yourself, as in case (c).
 
@@ -761,7 +762,7 @@ class of its own.
 | Chat completions (`POST {base}/chat/completions`, the format many servers call "OpenAI-compatible") | `Adapter\OpenAiCompatible\ChatCompletionsAdapter` | built |
 | Messages (`POST {base}/v1/messages`) | `Adapter\Anthropic\MessagesAdapter` | built |
 | Generate-content (`POST {base}/models/{model}:generateContent`) | `Adapter\Gemini\GenerateContentAdapter` | built |
-| Chat v2 | `Adapter\Cohere\ChatV2Adapter` | not built yet |
+| Chat v2 (`POST {base}/v2/chat`) | `Adapter\Cohere\ChatV2Adapter` | built |
 | Responses | `Adapter\OpenAiResponses\ResponsesAdapter` | not built yet |
 
 **The chat-completions adapter.** It sends a request to `{base URL}/chat/completions` and reads the model list at
@@ -1015,6 +1016,76 @@ the code. So does an answer with a tool call that names no tool. From an error b
 status word), never its sentences. A status 400 whose body says the key is not valid ends as
 `credentials_rejected`. A status 402 ends as `rejected` and is not tried again. The format documents no sign that
 forbids a retry and no wait.
+
+**The Chat v2 adapter.** It sends a request and a stream to `{base URL}/v2/chat`, and reads the model list at
+`{base URL}/v1/models?endpoint=chat&page_size=1000`: one page of the models that chat, and it never asks for a next
+one. Both are under the base URL, which carries no path (`https://api.cohere.com` for the provider's own API). What
+it sends is a closed list of fields: `model`, `messages`, `tools`, `tool_choice`, `response_format`, `max_tokens`,
+`temperature` and `stream`; `stream` is always written, as `false` or as `true`. The key goes as a bearer. It never
+sends `safety_mode`, `documents`, `citation_options`, `thinking`, `priority`, `strict_tools` or a header that names
+the caller. The provider documents no rule for a tool name, so no name is refused.
+
+A preset on this adapter can set one option of its own, beside the capability options:
+
+| Option | Values (default first) | What it changes |
+|---|---|---|
+| `schema_key` | `json_schema`, `schema` | the name under which the schema of a response format stands inside `response_format`. The provider's API reference writes `json_schema`, its guide `schema`; until a live check settles it, it is an option |
+
+A value outside its list fails as `not_configured` the first time the gateway is asked for capabilities, a call or
+the model list, and nothing is sent. So does an option whose name the adapter does not know. The option can be set
+per model with a `ModelOverride`.
+
+Its defaults, for a preset that sets nothing: every capability is native, except two that are emulated. A forced
+call of one named tool: the format can only say "a tool must be called", so the adapter sends that one tool alone.
+And tools together with a response format: the format refuses the pair, so the tools are sent and the schema goes
+into the system text.
+
+What it does with a transcript:
+
+- Every system message is a `system` message of its own, in its order; the schema of a response format that goes
+  into the system text is one more system message after yours.
+- A tool result is a `tool` message with the id of its call and your text.
+- A tool call goes back with its arguments as the text that arrived, also when they could not be read: the format
+  carries arguments as a string. Arguments you wrote yourself as a text that holds the same name twice go back as
+  they were decoded, not as that text.
+
+**The tool plan and thinking that must go back.** An answer of this format can hold a tool plan (free text the model
+writes before its tool calls) and thinking blocks in its content. The provider wants the assistant message back as it
+came. The adapter never gives the plan or thinking as answer text, and no stream event holds them. It keeps the plan,
+and the list of content blocks when it holds thinking, as the JSON text the server wrote, in the opaque part of the
+answer, and sends them back with that one assistant message. You do nothing but use `$answer->toMessage()` for the
+next round. A message whose text or tool calls you changed goes back without them, built from what it holds now. In a
+stream they arrive in pieces; the adapter joins them first. A content list is kept only when every block in it is a
+text block or a thinking block with exactly the members the provider documents. The plan and the list are each
+measured on their own, so a long answer text never costs the plan: a list of more than 9,999 blocks is not kept, and
+the whole opaque part, plan and list together, must fit in 1 MiB as it is sealed, where the kept text is escaped
+once more (a plan of plain letters alone fits up to 1,048,470 bytes). What does not fit is left out, and the answer
+comes without it; its text and tool calls are read all the same. A part is only as trustworthy as the
+transcript it comes from: a part with this adapter's mark that someone built by hand is sent when it passes that rule
+and its text blocks say the text of the message, so what that someone can still choose is the text of the plan and of
+the thinking, and over how many blocks the text is cut. If you keep transcripts where others can write, check them
+before you pass them on.
+
+**A response format.** The format has structured output of its own (`response_format` of the type `json_object` with
+a schema), and it refuses some JSON Schema keywords. Your schema is never changed, and the answer is always checked
+against all of it. What the adapter sends is your schema, or a looser copy: without `minimum`, `maximum`,
+`minItems`, `maxItems`, `minLength`, `maxLength`, `uniqueItems` and `not`, without `format` when one of its values is
+not `date-time`, `uuid`, `date` or `time`, and with `oneOf` written as `anyOf`. When your schema is one the format
+cannot take, the adapter puts it into the system text for that one request instead and asks for JSON in words: a
+schema with `allOf`, an object without a required property, a `pattern` that holds `^`, `$`, `?=` or `?!`, or a
+schema in which leaving a keyword out would make it stricter (a refused keyword under `if`, for example). You see no
+difference: the capability stays native and the structured result is the same. The name and the description of a
+response format are not sent on the native route.
+
+What the adapter reads without an option: the text of the text blocks, joined; a tool call per entry of
+`tool_calls`, whatever finish reason came with it; the token counts under `usage.tokens`, also written as `12.0`;
+and, in a stream, text and tool arguments in pieces, citations, debug events and events of a kind it does not know,
+which it skips. A stream that ends without its last event fails as `provider_error`, with the text that arrived. The
+finish words `ERROR` and `TIMEOUT`, and an error in the last event of a stream, end as `provider_error` with the word
+as the code. So does an answer with a tool call that names no tool. The format has no word for a refusal: a model
+that declines does so in ordinary text. The format has no error code, so the status alone decides the reason, and
+nothing of an error body is handed on: 402 (a billing limit) and 498 (a deny-listed token) end as `rejected` and are
+not tried again. The format documents no sign that forbids a retry and no wait.
 
 **A credential a server repeats.** For every adapter built on the adapter base: when a server repeats the key or the
 token it was sent, the model name of the answer falls back to the model of the request, an entry of the model list

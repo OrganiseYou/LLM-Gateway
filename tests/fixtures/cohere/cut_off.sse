@@ -1,0 +1,18 @@
+event: message-start
+data: {"type":"message-start","id":"synthetic-answer-1","delta":{"message":{"role":"assistant"}}}
+
+event: content-start
+data: {"type":"content-start","index":0,"delta":{"message":{"content":{"type":"text","text":""}}}}
+
+event: content-delta
+data: {"type":"content-delta","index":0,"delta":{"message":{"content":{"text":"{\"city\":"}}}}
+
+event: content-delta
+data: {"type":"content-delta","index":0,"delta":{"message":{"content":{"text":"\"Par"}}}}
+
+event: content-end
+data: {"type":"content-end","index":0}
+
+event: message-end
+data: {"type":"message-end","id":"synthetic-answer-1","delta":{"finish_reason":"MAX_TOKENS","usage":{"billed_units":{"input_tokens":3,"output_tokens":2},"tokens":{"input_tokens":3,"output_tokens":2}}}}
+

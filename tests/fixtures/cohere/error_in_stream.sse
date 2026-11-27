@@ -1,0 +1,6 @@
+event: message-start
+data: {"type":"message-start","id":"synthetic-answer-1","delta":{"message":{"role":"assistant"}}}
+
+event: message-end
+data: {"type":"message-end","id":"synthetic-answer-1","delta":{"error":"{{echo}}"}}
+

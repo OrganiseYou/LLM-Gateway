@@ -257,7 +257,7 @@ the adapters cannot be built on the contract of S1 as it is. Section numbers bel
   reason are read; the answer is still checked against the caller's full schema.
 
 ### LG-16 · The Chat v2 adapter
-- Status: todo · Needs: LG-29, LG-30, LG-31, LG-32
+- Status: done · Needs: LG-29, LG-30, LG-31, LG-32
 - Note: From LG-15: no wall-clock bound in a test; a hand-built argument text with a repeated member name is not sent verbatim; the agreement check compares raw text in one spelling, in order.
 - Note: From LG-13: `Adapter\Shared\RawJson` cuts a member out of a body as text; anything sealed as one string must pass the size and container limits as text before it is decoded, in both directions and per stream piece (G100).
 - Note: From LG-12: copy its structure (Dialect, Reading, ErrorBody, fixtures builder, the test files under tests/Unit/Adapter/OpenAiCompatible); the base now keeps an echoed credential out of the model name, the model list and tool calls; a finish word for tool calls without a call is `Other`; an allow-list decides when a strict schema mode is sent.
@@ -280,6 +280,7 @@ the adapters cannot be built on the contract of S1 as it is. Section numbers bel
 
 ### LG-34 · The Responses adapter
 - Status: todo · Needs: LG-29, LG-30, LG-31, LG-32
+- Note: From LG-16: count what is kept per kind, so a text that is never kept cannot drop what is; give every stream counter a boundary test; a whole answer and a stream must read odd tool-call shapes the same way.
 - Note: From LG-15: no wall-clock bound in a test; a hand-built argument text with a repeated member name is not sent verbatim; the agreement check compares raw text in one spelling, in order.
 - Note: From LG-13: `Adapter\Shared\RawJson` cuts a member out of a body as text; anything sealed as one string must pass the size and container limits as text before it is decoded, in both directions and per stream piece (G100).
 - Note: From LG-12: copy its structure (Dialect, Reading, ErrorBody, fixtures builder, the test files under tests/Unit/Adapter/OpenAiCompatible); the base now keeps an echoed credential out of the model name, the model list and tool calls; a finish word for tool calls without a call is `Other`; an allow-list decides when a strict schema mode is sent.
@@ -426,6 +427,7 @@ weight is compared with the provider's page first.
 
 ### LG-27 · Run the live check with real keys
 - Status: needs-joris · Needs: LG-25
+- Note: From LG-16: not confirmed and to be seen live: which schema key counts; whether a plan joined from stream pieces is taken back; whether a transcript may hold calls to tools missing from `tools` when one tool is forced; whether plain-text tool content is accepted; a transcript of system messages only or ending with an assistant message.
 - Note: From LG-15: not confirmed and to be seen live: whether the skip value is accepted for a hand-built call; whether a parts list joined from a stream is taken back; what real call ids look like and whether results match without an id; which structured-output field counts; whether an empty text part or two `user` contents in a row are accepted.
 - Note: From LG-13: how a streamed content list is joined for the `mistral` entry is not confirmed by the provider's file (G100); the live check of LG-27 must cover a streamed answer with thinking and its next round.
 - Note: From LG-14: not confirmed and to be seen live: a thinking list joined from a stream is accepted back; what the provider answers when thinking is left out of the next round.

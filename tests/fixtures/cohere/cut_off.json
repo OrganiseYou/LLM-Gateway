@@ -1,0 +1,11 @@
+{
+    "id": "synthetic-answer-1",
+    "finish_reason": "MAX_TOKENS",
+    "message": {
+        "role": "assistant",
+        "content": [
+            {"type": "text", "text": "{\"city\":\"Par"}
+        ]
+    },
+    "usage": {"billed_units": {"input_tokens": 3, "output_tokens": 2}, "tokens": {"input_tokens": 3, "output_tokens": 2}}
+}

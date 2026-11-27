@@ -129,6 +129,27 @@ All notable changes to this package are written here. The format follows
   provider refused (a successful response without an answer) is `rejected` with the provider's reason as the code;
   a status 400 whose body says the key is not valid is `credentials_rejected`; a status 402 is `rejected` and not
   tried again. No preset ships with it yet. The README lists its options.
+- `Adapter\Cohere\ChatV2Adapter`: the fourth shipped adapter, for the Chat v2 format (`POST {base}/v2/chat`, the
+  stream on the same address), with its model list (`GET {base}/v1/models?endpoint=chat&page_size=1000`, one
+  page). It sends a closed list of fields (`model`, `messages`, `tools`, `tool_choice`, `response_format`,
+  `max_tokens`, `temperature`, `stream`), always with `stream` written as `false` or `true`; the key travels as a
+  bearer. One option of its own, with a default: `schema_key` (`json_schema` or `schema`: the provider's pages do
+  not agree on the name under which the schema stands). Every system message is a message of its own, and
+  a tool result is a `tool` message with the id of its call. One named tool is forced by sending only that tool and
+  saying a tool must be called, and tools beside a response format are sent with the schema in the system text: the
+  format has no way for either, and the capabilities say `emulated`. The tool plan and the thinking of an answer
+  never become answer text: they travel in the opaque part, as the JSON text the server wrote, and go back only with
+  the message they came with, and only when every block has exactly the members the provider documents and the text
+  blocks say the text of the message; in a stream they are joined from their pieces first. Structured output is
+  native: the schema is sent without the constraint keywords the format refuses and with `oneOf` written as
+  `anyOf`, a schema the format cannot take (`allOf`, an object without a required property, an anchor or a
+  lookahead in a pattern) goes into the system text for that one request, and the answer is checked against the
+  caller's whole schema either way. A token count written as `12.0` is read as 12. The finish words `ERROR` and
+  `TIMEOUT`, and an error in the last event of a stream, end as `provider_error`; an answer with a tool call that
+  names no tool fails the same way. The format has no error code, so the status alone decides the reason; 402 and
+  498 are `rejected` and not tried again, and no sign that forbids a retry is documented. A tool call text with a
+  member name twice goes back as its arguments were decoded. No preset ships with it yet. The README lists its
+  option.
 - `Testing\ContractTestCase::keepsDataWithEveryToolCall()`: a test class of an adapter that keeps data of its
   format with every answer that holds a tool call says true, and the shared set then allows an opaque part on such
   an answer. The default is false, so every existing test class runs as before.
