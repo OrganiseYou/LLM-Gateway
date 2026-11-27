@@ -631,6 +631,9 @@ No contract change. Sections 10 and 11.
 | `everyObjectIsClosed(JsonSchema $schema): bool` | `additionalProperties: false` on every object |
 | `everyObjectHasARequiredProperty(JsonSchema $schema): bool` | |
 | `depth(JsonSchema $schema): int`, `propertyCount(JsonSchema $schema): int` | |
+| `mayTighten(JsonSchema $schema, array $keywords): bool` (G89) | whether the schema can refuse an answer the caller's schema allows once these keywords are taken out, or `oneOf` among them is written as `anyOf`: a keyword under `not`, under `if`, in a branch of `oneOf`, under `contains` beside `maxContains`, and the other cases the class lists. True: the adapter does not send the copy and uses the emulation |
+| `valuesOf(JsonSchema $schema, string $keyword): list<mixed>` (G89) | the value of a keyword at every place where a schema stands, for a rule on a value: `minItems` above 1, a `format` outside a list, the content of a `pattern`, an external `$ref`, a non-scalar `enum` value |
+| `renamed(JsonSchema $schema, string $keyword, string $as): JsonSchema` (G89) | a copy with the keyword under another name (`oneOf` written as `anyOf`), under the rules of `without()` |
 
 It walks only the places where a schema stands, as the structured check does (G55). Each adapter keeps its own keyword
 lists, from its provider file, in its own folder.

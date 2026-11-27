@@ -1127,6 +1127,16 @@ A format without structured output of its own can emulate it: the adapter report
 and adds the text of `(new Adapter\Shared\StructuredOutputEmulation())->instructions($request->responseFormat)` as
 the last of the system text. The base still checks the answer, so the caller sees the same structured result.
 
+A format with structured output of its own often takes only a part of JSON Schema. `Adapter\Shared\SchemaShape`
+answers what an adapter then needs to know about the caller's schema, with the adapter's own lists of keywords:
+`uses($schema, $keywords)` and `valuesOf($schema, $keyword)` to find what the server refuses,
+`without($schema, $keywords)` and `renamed($schema, $keyword, $as)` for a copy to send instead, and `isRecursive()`,
+`everyPropertyIsRequired()`, `everyObjectIsClosed()`, `everyObjectHasARequiredProperty()`, `depth()` and
+`propertyCount()` for the rules on its shape. A copy may be looser than the caller's schema, never tighter, and
+taking a keyword out does not always loosen: without `minimum`, a schema that had it under `not` refuses more than
+before. Ask `mayTighten($schema, $keywords)` first; when it says true, do not send the copy and use the emulation
+above for that request. The base checks the answer against the caller's schema in full, whatever was sent.
+
 **The preset for it, and a first call.** The preset names your adapter. The sample uses `Testing\FakeTransport`, so it
 sends nothing; with your own transport the same gateway reaches the real server. Runs today, after the class above.
 

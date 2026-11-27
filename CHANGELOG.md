@@ -53,6 +53,14 @@ All notable changes to this package are written here. The format follows
   `forced_tool_call`, `parallel_tool_calls`, `structured_output`, `tools_with_structured_output`, `streaming`,
   `model_listing`, `temperature`, `context_length`) over the defaults of a format. A value outside its list is
   `not_configured`. The README lists the values.
+- `Adapter\Shared\SchemaShape`: questions about the schema of a response format, for an adapter that must decide how
+  the schema goes to its server. `uses()` tells which of a list of keywords the schema uses, `valuesOf()` gives the
+  values of one keyword, `without()` gives a copy without keywords and `renamed()` a copy with a keyword under
+  another name; `mayTighten()` tells whether such a copy can refuse an answer the caller's schema allows, in which
+  case it must not be sent. `isRecursive()`, `everyPropertyIsRequired()`, `everyObjectIsClosed()`,
+  `everyObjectHasARequiredProperty()`, `depth()` and `propertyCount()` tell whether a schema fits what a server
+  accepts. Only the places where a schema stands are read: never the name of a property, nor a value of `enum`,
+  `const`, `default` or `examples`. The caller's schema is never changed.
 
 ### Changed
 

@@ -20,6 +20,7 @@ use Opis\String\UnicodeString;
 use Opis\Uri\Uri;
 use OrganiseYou\LlmGateway\Adapter\Shared\Internal\LoopGuardValidator;
 use OrganiseYou\LlmGateway\Adapter\Shared\Internal\SchemaCheckTooCostly;
+use OrganiseYou\LlmGateway\Adapter\Shared\Internal\SchemaPlaces;
 use OrganiseYou\LlmGateway\Adapter\Shared\Internal\SchemaReferenceLoop;
 use OrganiseYou\LlmGateway\Contract\ErrorReason;
 use OrganiseYou\LlmGateway\Contract\FinishReason;
@@ -91,18 +92,6 @@ final readonly class StructuredAnswerChecker
 
     /** The keywords for which the validator must keep track of what every branch of a schema looked at. */
     private const array UNEVALUATED = ['unevaluatedProperties', 'unevaluatedItems'];
-
-    /** The keywords whose value is a map from a name to a schema. */
-    private const array SCHEMA_MAPS = ['properties', 'patternProperties', '$defs', 'definitions', 'dependentSchemas', 'dependencies'];
-
-    /** The keywords whose value is one schema. */
-    private const array SCHEMAS = [
-        'items', 'additionalItems', 'additionalProperties', 'contains', 'propertyNames', 'not', 'if', 'then', 'else',
-        'unevaluatedItems', 'unevaluatedProperties', 'contentSchema',
-    ];
-
-    /** The keywords whose value is a list of schemas. */
-    private const array SCHEMA_LISTS = ['allOf', 'anyOf', 'oneOf', 'prefixItems', 'items'];
 
     /**
      * The steps, in this order:
@@ -402,7 +391,7 @@ final readonly class StructuredAnswerChecker
         foreach (get_object_vars($schema) as $keyword => $value) {
             $keyword = (string) $keyword;
 
-            if ($value instanceof stdClass && in_array($keyword, self::SCHEMA_MAPS, true)) {
+            if ($value instanceof stdClass && in_array($keyword, SchemaPlaces::MAPS, true)) {
                 $members = get_object_vars($value);
                 if ($keyword === 'properties') {
                     $first = [];
@@ -421,9 +410,9 @@ final readonly class StructuredAnswerChecker
                 foreach ($members as $member) {
                     self::discriminatorsFirst($member);
                 }
-            } elseif ($value instanceof stdClass && in_array($keyword, self::SCHEMAS, true)) {
+            } elseif ($value instanceof stdClass && in_array($keyword, SchemaPlaces::SINGLE, true)) {
                 self::discriminatorsFirst($value);
-            } elseif (is_array($value) && in_array($keyword, self::SCHEMA_LISTS, true)) {
+            } elseif (is_array($value) && in_array($keyword, SchemaPlaces::LISTS, true)) {
                 foreach ($value as $member) {
                     self::discriminatorsFirst($member);
                 }

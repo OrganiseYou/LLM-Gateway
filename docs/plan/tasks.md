@@ -181,7 +181,7 @@ the adapters cannot be built on the contract of S1 as it is. Section numbers bel
   value that is not visible ASCII is `not_configured` and nothing is sent; `capabilities()` still sends nothing.
 
 ### LG-32 · The schema helper
-- Status: todo · Needs: LG-08, LG-11
+- Status: done · Needs: LG-08, LG-11
 - Note: G74.
 - Scope: section 5.9. `Adapter\Shared\SchemaShape` with the methods listed there. It walks only the places of a schema
   where a schema stands (as G55), never changes the caller's `JsonSchema`, and holds no provider name.
@@ -190,6 +190,7 @@ the adapters cannot be built on the contract of S1 as it is. Section numbers bel
 
 ### LG-12 · The chat-completions adapter
 - Status: todo · Needs: LG-29, LG-30, LG-31, LG-32
+- Note: From LG-32: the provider's file names limits the row of 5.9 omits (root may not be an `anyOf`, total length of names and enum values, number of enum values); check them with the value method of `SchemaShape` (G89) before sending `strict`.
 - Note: From LG-31: the adapter needs a test with a header setting filled in, to show none of its own headers clashes.
 - Note: From LG-30: the shared set tests the retry sign only on a 503 and a refusal only with text; the adapter needs its own unit tests for a 429 that forbids a retry and for a refusal without text.
 - Note: From LG-29: an empty JSON object sealed as an array comes back as `[]`; an adapter that must send provider data back unchanged seals the provider's raw JSON text as one string, not the decoded arrays.
@@ -221,6 +222,7 @@ the adapters cannot be built on the contract of S1 as it is. Section numbers bel
 
 ### LG-14 · The Messages adapter
 - Status: todo · Needs: LG-29, LG-30, LG-31, LG-32
+- Note: From LG-32: take `not` out in the same call as the constraint keywords, write `oneOf` as `anyOf` before sending, use the emulated route when `SchemaShape` says the reduced schema may be tighter (G89), and run `isRecursive()` and `everyObjectIsClosed()` on the copy that is sent.
 - Note: From LG-31: the adapter needs a test with a header setting filled in, to show none of its own headers clashes.
 - Note: From LG-30: the shared set tests the retry sign only on a 503 and a refusal only with text; the adapter needs its own unit tests for a 429 that forbids a retry and for a refusal without text.
 - Note: From LG-29: an empty JSON object sealed as an array comes back as `[]`; an adapter that must send provider data back unchanged seals the provider's raw JSON text as one string, not the decoded arrays.
@@ -250,6 +252,7 @@ the adapters cannot be built on the contract of S1 as it is. Section numbers bel
 
 ### LG-16 · The Chat v2 adapter
 - Status: todo · Needs: LG-29, LG-30, LG-31, LG-32
+- Note: From LG-32: take `not` out in the same call as the constraint keywords, write `oneOf` as `anyOf` before sending, use the emulated route when `SchemaShape` says the reduced schema may be tighter (G89), and run `isRecursive()` and `everyObjectIsClosed()` on the copy that is sent.
 - Note: From LG-31: the adapter needs a test with a header setting filled in, to show none of its own headers clashes.
 - Note: From LG-30: the shared set tests the retry sign only on a 503 and a refusal only with text; the adapter needs its own unit tests for a 429 that forbids a retry and for a refusal without text.
 - Note: From LG-29: an empty JSON object sealed as an array comes back as `[]`; an adapter that must send provider data back unchanged seals the provider's raw JSON text as one string, not the decoded arrays.
@@ -267,6 +270,7 @@ the adapters cannot be built on the contract of S1 as it is. Section numbers bel
 
 ### LG-34 · The Responses adapter
 - Status: todo · Needs: LG-29, LG-30, LG-31, LG-32
+- Note: From LG-32: the provider's file names limits the row of 5.9 omits (root may not be an `anyOf`, total length of names and enum values, number of enum values); check them with the value method of `SchemaShape` (G89) before sending `strict`.
 - Note: From LG-31: the adapter needs a test with a header setting filled in, to show none of its own headers clashes.
 - Note: From LG-30: the shared set tests the retry sign only on a 503 and a refusal only with text; the adapter needs its own unit tests for a 429 that forbids a retry and for a refusal without text.
 - Note: From LG-29: an empty JSON object sealed as an array comes back as `[]`; an adapter that must send provider data back unchanged seals the provider's raw JSON text as one string, not the decoded arrays.
