@@ -378,6 +378,7 @@ function testFilesThatReadFilesOfTheRepository(): array
         'Support/MessagesFixtures.php' => 'reads the hand-written fixtures under tests/fixtures/anthropic',
         'Support/GenerateContentFixtures.php' => 'reads the hand-written fixtures under tests/fixtures/gemini',
         'Support/ReadmeSamples.php' => 'reads README.md, whose samples the tests under tests/Readme execute',
+        'Support/PresetProof.php' => 'reads the provider files under docs/providers, which the preset definitions under tests/Presets quote',
     ];
 }
 

@@ -137,6 +137,9 @@ All notable changes to this package are written here. The format follows
 
 ### Changed
 
+- The library ships no provider presets and no preset catalogue (`Preset\Presets` is not built): a host builds its
+  own `Preset` values. Worked definitions for the providers the tests prove stand in `tests/Presets`, as examples;
+  they are not part of the package's autoload.
 - An answer of very many tool calls is read in one walk by the chat-completions adapter: the ids that are taken are
   kept as a set. 30,000 calls took close to a minute before and take under a second now. The ids are the same.
 - `reasoning_carrier: content_entries`: a content list in which an object holds the same member name twice is no

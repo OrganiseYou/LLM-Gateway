@@ -26,15 +26,16 @@ What works today:
 
 What is coming, and is **not built yet**:
 
-- the other shipped adapters (one per API format) and the shipped presets (one per provider; the list is in
-  [docs/requirements.md](docs/requirements.md), LR-18 and LR-21);
-- the preset catalogue `Preset\Presets`, to list the providers the library knows;
-- per preset, what a customer needs from their provider to connect;
+- the other shipped adapters (one per API format);
 - the tool loop (`src/Loop`): today you write the loop yourself, as shown under [Tools](#tools);
 - the connection check: `Gateway::check()` exists, but a gateway built on the adapter base answers `not_supported`
   for now;
 - model lists for the other shipped adapters: `Gateway::models()` works for the three shipped adapters and for an
   adapter you write yourself.
+
+The library ships no provider presets: you build the `Preset` for a provider yourself (see
+[Adding your own provider](#adding-your-own-provider)). Worked definitions for the providers the tests prove are in
+`tests/Presets`, as examples you can copy.
 
 So today you can use the library in three ways: with the fake gateway, with a shipped adapter and a preset
 you make yourself, and with an adapter you write yourself. Every
@@ -482,9 +483,11 @@ Against a real provider, only the way you build the gateway changes. You need fo
 3. a **transport**: your HTTP client behind the library's `Transport` interface;
 4. a **config**: the retry policy, and optionally a base URL, settings, an observer and a clock.
 
-`GatewayFactory::create()` turns them into a gateway. It sends nothing. This function runs today with any preset; a
-shipped preset to pass to it is not built yet, so today the preset is one you make yourself (see
-[Adding your own provider](#adding-your-own-provider)).
+`GatewayFactory::create()` turns them into a gateway. It sends nothing. This function runs today with any preset.
+The library ships no presets: the preset is one you build yourself (see
+[Adding your own provider](#adding-your-own-provider)). The definitions in `tests/Presets` are worked examples for
+the providers the tests prove, each checked against the provider file under docs/providers and the shipped
+adapter.
 
 <!-- example: runs -->
 ```php
@@ -591,23 +594,10 @@ request on to your client. That is where your outbound rule, tracing and redacti
 
 A screen where a customer chooses a provider and a model has two steps.
 
-**Step 1: list the providers.** Not built yet. The library will ship a catalogue of its presets, `Preset\Presets`.
-Each entry is a `Preset` with a label, a description, the fields the customer fills in, the kinds of credentials it
-accepts and where the provider processes data. The method names below are not decided; they may change.
-
-<!-- example: coming -->
-```php
-use OrganiseYou\LlmGateway\Preset\Presets;
-
-// Not built yet.
-foreach (Presets::all() as $preset) {
-    echo $preset->id, ': ', $preset->label, ' - ', $preset->description, "\n";
-}
-
-$chosen = Presets::find('the-id-the-customer-chose');
-```
-
-A preset you made yourself is not in that catalogue. Keep your own next to it in your own list.
+**Step 1: list the providers.** The library ships no list of providers and no presets: your application keeps
+its own list of `Preset` values, one per provider it offers. Each `Preset` has what such a screen shows: a label, a
+description, the fields the customer fills in, the kinds of credentials it accepts, and where the provider processes
+data, with the link that says so. The files in `tests/Presets` are worked definitions you can start from.
 
 **Step 2: ask the chosen provider for its models.** `Gateway::models()` exists. It needs that customer's credentials
 and it sends a request, so it takes a timeout and can fail like any call. The three shipped adapters read it; the

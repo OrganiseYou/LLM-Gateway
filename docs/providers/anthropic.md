@@ -56,7 +56,7 @@ the fact is marked "(condensed reading)". All JSON in this file is synthetic.
 | | Supported | How (field names) | Link |
 |---|---|---|---|
 | Tool calling | yes, "available on every model" | `tools[]` with `name`, `description`, `input_schema` (a JSON Schema with `type: "object"`); optional `strict: true`. The answer holds `tool_use` blocks; results go back as `tool_result` blocks in a user message. | [define-tools], [tool-calls] |
-| Forced tool call | depends on the model | `tool_choice`: `{"type":"auto"}` (default when tools are given), `{"type":"any"}`, `{"type":"tool","name":"..."}` (one named tool), `{"type":"none"}` (default when no tools). `any` and `tool` return 400 `invalid_request_error` on Claude Fable 5.2, Mythos 5.2, Opus 5.5, Sonnet 5.5, Fable 5.1 and Mythos 5.1, and with `thinking: {"type":"enabled"}`. Where accepted, the answer starts with the tool call: no text and no thinking before it. | [define-tools], [errors] |
+| Forced tool call | depends on the model | `tool_choice`: `{"type":"auto"}` (default when tools are given), `{"type":"any"}`, `{"type":"tool","name":"..."}` (one named tool), `{"type":"none"}` (default when no tools). `any` and `tool` return 400 `invalid_request_error` ("tool_choice: type \"tool\" and \"any\" are not supported for this model.") on six models, always, "regardless of thinking settings" [define-tools], also on the token counting endpoint [errors]: Claude Fable 5.2 `claude-fable-5-2`, Claude Mythos 5.2 `claude-mythos-5-2`, Claude Opus 5.5 `claude-opus-5-5`, Claude Sonnet 5.5 `claude-sonnet-5-5`, Claude Fable 5.1 `claude-fable-5-1`, Claude Mythos 5.1 `claude-mythos-5-1` (ids from [models], [mythos-5-2], [fable-5-1], [mythos-5-1]; see "Model name" below). No API version is named as a condition. On other models they fail only with manual extended thinking `thinking: {"type":"enabled"}`; adaptive thinking does not block them (Claude Opus 5 and Claude Haiku 5.5 are named as accepting it) [define-tools]. `auto` and `none` are accepted on all. Where accepted, the answer starts with the tool call: no text and no thinking before it. | [define-tools], [errors] |
 | Parallel tool calls | yes, on by default | Several `tool_use` blocks in one answer. Turn off with `disable_parallel_tool_use: true` inside the `tool_choice` object (not a top-level field): at most one call with `auto`, exactly one with `any` or `tool`. All results must go back in one user message. | [parallel], [create] |
 | Structured output with a JSON Schema (and which schema keywords are refused) | yes, native, no beta header; "available on every model" | `output_config.format = {"type":"json_schema","schema":{...}}`. The JSON arrives as text in a `text` block. Refused with a 400: recursive schemas, `oneOf`, `not`, `minimum`, `maximum`, `multipleOf`, `minLength`, `maxLength`, `minItems` other than 0 or 1 and other array limits, `additionalProperties` other than `false`, external `$ref`, non-scalar `enum` values, some `anyOf`/`allOf` combinations, regex backreferences and lookaround. Accepted: the basic types, `enum`, `const`, `anyOf`, `allOf`, `$ref`/`$defs`/`definitions`, `default`, `required`, a list of string `format`s, simple `pattern`. See "Structured output" below. | [structured] |
 | Tools together with structured output | yes | `output_config.format` and tools (also `strict: true` tools) in one request; the answer is then either a `tool_use` block or JSON in a `text` block, and the caller must handle both. The schema does not constrain tool calls. | [structured] |
@@ -72,6 +72,13 @@ the fact is marked "(condensed reading)". All JSON in this file is synthetic.
   maximum values for this parameter" [create] (condensed reading). The per-model maximum is the "Max output" column of
   the model table: 128K tokens for every model from the 4.6 generation on, 64K for Opus 4.5, Sonnet 4.5 and Haiku
   4.5 [models]. It can be read per model from `max_tokens` in the model list [models-list].
+- Max output per model, the "Max output" column of the "All models" table, a "Synchronous Messages API limit"
+  [models]: 128K tokens for Claude Fable 5.2, Opus 5.5, Sonnet 5.5, Haiku 5.5, Mythos 5.2, Fable 5.1, Mythos 5.1,
+  Fable 5, Mythos 5, Opus 5, Opus 4.8, Opus 4.7, Opus 4.6, Sonnet 5 and Sonnet 4.6; 64K for Opus 4.5, Sonnet 4.5 and
+  Haiku 4.5; 32K for Opus 4.1 and Opus 4 and 64K for Sonnet 4, all three marked retired except on some cloud
+  platforms. So each of the six models that refuse a forced tool call has 128K; the three model pages read agree for
+  their models [mythos-5-2], [fable-5-1], [mythos-5-1]. No model in the table, current or retired, has a limit below 16,000
+  tokens; the lowest is 32K.
 - `max_tokens: 0` produces no answer; it only fills the prompt cache [create] (condensed reading).
 - A large `max_tokens` without streaming is discouraged: requests over about 10 minutes should stream [errors].
 - Thinking tokens count toward `max_tokens` [create] (condensed reading). On several current models thinking cannot be
@@ -91,6 +98,25 @@ the fact is marked "(condensed reading)". All JSON in this file is synthetic.
 - Model name: a plain string id such as `claude-opus-5-5`; older ones carry a date, such as
   `claude-haiku-4-5-20251001`. "Every Claude model ID is a pinned snapshot, including the dateless IDs" [models].
   The cloud platforms use other ids (for example an `anthropic.` prefix on Bedrock) [models].
+- Model ids of the six models that refuse a forced tool call, on the Claude API, as the provider writes them:
+
+  | Model | Claude API id | Read on |
+  |---|---|---|
+  | Claude Fable 5.2 | `claude-fable-5-2` | [models] ("Claude API ID" row) |
+  | Claude Mythos 5.2 | `claude-mythos-5-2` | [mythos-5-2] ("Model IDs" table) |
+  | Claude Opus 5.5 | `claude-opus-5-5` | [models] ("Claude API ID" row) |
+  | Claude Sonnet 5.5 | `claude-sonnet-5-5` | [models] ("Claude API ID" row) |
+  | Claude Fable 5.1 | `claude-fable-5-1` | [fable-5-1] ("Model IDs" table) |
+  | Claude Mythos 5.1 | `claude-mythos-5-1` | [mythos-5-1] ("Model IDs" table) |
+
+  None of them has a dated id. From the 4.6 generation on the dateless id "is the canonical model ID for that
+  release"; it "is not an alias. It is the snapshot" [model-ids]. On [models] the "Claude API alias" row repeats the
+  same value as the id for Fable 5.2, Opus 5.5 and Sonnet 5.5 ("Dateless IDs are their own pinned snapshot; the alias
+  row repeats them"). A request sends exactly the id above. Only models before 4.6 have a dated id plus an alias
+  (for example `claude-haiku-4-5-20251001` and `claude-haiku-4-5`); the alias "points to the most recent dated
+  snapshot for its minor version" [model-ids]. The overview's "All models" table shows no ids for Mythos 5.2,
+  Fable 5.1 and Mythos 5.1; their ids come from their own model pages. Mythos 5.2 and Mythos 5.1 are available only
+  to organisations verified by the provider; Fable 5.1 is marked legacy [models], [fable-5-1].
 
 ### The shape of a request
 Roles in `messages` are `user` and `assistant`. `content` is a string or an array of blocks; a string is short for one
@@ -370,6 +396,10 @@ All opened on 2026-11-27.
 [rate-limits]: https://platform.claude.com/docs/en/api/rate-limits
 [models-list]: https://platform.claude.com/docs/en/api/models/list
 [models]: https://platform.claude.com/docs/en/models/overview
+[model-ids]: https://platform.claude.com/docs/en/about-claude/models/model-ids-and-versions
+[mythos-5-2]: https://platform.claude.com/docs/en/models/mythos-5-2/overview
+[fable-5-1]: https://platform.claude.com/docs/en/models/fable-5-1/overview
+[mythos-5-1]: https://platform.claude.com/docs/en/models/mythos-5-1/overview
 [authentication]: https://platform.claude.com/docs/en/manage-claude/authentication
 [streaming]: https://platform.claude.com/docs/en/build-with-claude/streaming
 [structured]: https://platform.claude.com/docs/en/build-with-claude/structured-outputs
@@ -392,6 +422,10 @@ All opened on 2026-11-27.
 - [rate-limits]: Rate limits
 - [models-list]: List Models (reference)
 - [models]: Models overview
+- [model-ids]: Model IDs and versioning
+- [mythos-5-2]: Claude Mythos 5.2 (model page)
+- [fable-5-1]: Claude Fable 5.1 (model page)
+- [mythos-5-1]: Claude Mythos 5.1 (model page)
 - [authentication]: Authentication
 - [streaming]: Streaming messages
 - [structured]: Structured outputs
