@@ -23,9 +23,12 @@ use OrganiseYou\LlmGateway\Contract\Gateway;
 use OrganiseYou\LlmGateway\Contract\GatewayException;
 use OrganiseYou\LlmGateway\Contract\Internal\Rules;
 use OrganiseYou\LlmGateway\Contract\InvalidValue;
+use OrganiseYou\LlmGateway\Contract\Message;
 use OrganiseYou\LlmGateway\Contract\ModelInfo;
+use OrganiseYou\LlmGateway\Contract\OpaquePart;
 use OrganiseYou\LlmGateway\Contract\Operation;
 use OrganiseYou\LlmGateway\Contract\Request;
+use OrganiseYou\LlmGateway\Contract\Role;
 use OrganiseYou\LlmGateway\Contract\Secret;
 use OrganiseYou\LlmGateway\Contract\Stream\StreamEvent;
 use OrganiseYou\LlmGateway\Contract\Stream\StreamFailed;
@@ -52,6 +55,7 @@ use OrganiseYou\LlmGateway\Transport\Transport;
 use OrganiseYou\LlmGateway\Transport\TransportException;
 use OrganiseYou\LlmGateway\Transport\TransportFailure;
 use SensitiveParameter;
+use stdClass;
 use Throwable;
 
 /**
@@ -60,14 +64,22 @@ use Throwable;
  * do, the sign-in headers, the check of a structured answer and the stream of one event for a format without
  * streaming.
  *
+ * It also adds a setting of the customer that the preset sends as a header, and reads the capability options of
+ * the preset.
+ *
  * An adapter for one format extends this class and writes the abstract methods. The class is readonly, so an
  * adapter is readonly too: it keeps nothing between two calls. The constructor is final: a gateway is always built
  * as `new Adapter($preset, $config, $credentials, $transport)`. An adapter reads the data of its preset from
- * `$this->preset` and a setting of the customer with setting(); the clock, the observer and the retry policy are
+ * `$this->preset`, an adapter option with option() and a setting of the customer with setting(); the clock, the observer and the retry policy are
  * the base's alone.
  *
  * A method of an adapter that takes a response or a request should mark that parameter `#[\SensitiveParameter]`
  * itself: PHP does not inherit the attribute, and an error thrown there would otherwise keep the body in its trace.
+ *
+ * A format whose answers hold data that must go back unchanged in the next round (and that has no neutral form)
+ * gives its adapter the constant OPAQUE_FORMAT, seals that data with seal() into the opaque part it hands to
+ * answer(), and asks unseal() for it when it writes an assistant message of a request. An adapter of a format
+ * without such data uses none of the three.
  *
  * @phpstan-type Fault array{reason: ErrorReason, status: ?int, code: ?string, wait: ?float, retryable: bool, detail: ?string, outcome: AttemptOutcome, failure: ?TransportFailure, broken: ?Error}
  */
@@ -75,6 +87,31 @@ abstract readonly class AbstractAdapter implements Gateway
 {
     /** The trace id of an answer or an error an adapter builds; the base replaces it with the one of the call. */
     private const string NO_TRACE_ID = 'not-set';
+
+    /**
+     * The mark of the opaque parts this adapter seals: a small letter and then one or two small letters or digits
+     * that name nothing, such as `x7`. Never a name of a provider, a format or a class. An adapter that seals gives
+     * the constant its own value; `a1` to `a9` are kept for the adapters of the library. Empty: this adapter seals
+     * nothing and opens nothing.
+     *
+     * Two adapters with the same mark would take each other's parts for their own.
+     */
+    protected const string OPAQUE_FORMAT = '';
+
+    /**
+     * The largest opaque part, in bytes: 1 MiB. A larger one is not kept with an answer and is never opened. Why a
+     * limit: a part is decoded before it is sent back, and a process that runs out of memory cannot be caught.
+     */
+    private const int OPAQUE_LIMIT_BYTES = 1_048_576;
+
+    /**
+     * The most objects and lists an opaque part may hold, counted outside its strings. Why a second limit: decoded,
+     * a list of one item takes about ninety times the two bytes it is written in, so 1 MiB of nested lists takes
+     * about 90 MB. With this limit a part of 1 MiB takes at most about 20 MB to open.
+     */
+    private const int OPAQUE_LIMIT_CONTAINERS = 10_000;
+
+    private const string TOOL_CALL_REPEATS_A_CREDENTIAL = 'a tool call of the answer repeats a credential of the gateway and is not handed on';
 
     private const string REDIRECTED = 'the server answered with a redirect, and a redirect is never followed';
 
@@ -238,7 +275,8 @@ abstract readonly class AbstractAdapter implements Gateway
 
     /**
      * Lets a format change the reason the status gave, for a code its documentation names: an unknown model, for
-     * example. Not asked for a redirect. A reason of rate_limited or unavailable is retried, every other is not.
+     * example. Not asked for a redirect. A reason of rate_limited or unavailable is retried unless retryAllowed()
+     * says otherwise, every other is not.
      */
     protected function refineReason(#[SensitiveParameter] HttpResponse $response, ErrorReason $reason): ErrorReason
     {
@@ -267,6 +305,17 @@ abstract readonly class AbstractAdapter implements Gateway
         }
 
         return null;
+    }
+
+    /**
+     * Whether a failed response may be tried again. Asked only for a response whose reason, after refineReason(),
+     * is rate_limited or unavailable: every other failure is never tried again. False, for a response that itself
+     * says "do not retry" (a header or a field the format documents): the call fails at once with that reason, is
+     * not tried again and tells no wait. An exception thrown here counts as true.
+     */
+    protected function retryAllowed(#[SensitiveParameter] HttpResponse $response, ErrorReason $reason): bool
+    {
+        return true;
     }
 
     // ---------------------------------------------------------------------------------------------------------
@@ -307,11 +356,88 @@ abstract readonly class AbstractAdapter implements Gateway
     }
 
     /**
+     * One adapter option of the preset, or null when the preset does not set it. With a model: the option as it is
+     * for that model, with the model overrides of the preset laid over its options. Without a model: the option of
+     * the preset itself, for what is the same for every model (a path, for example).
+     */
+    final protected function option(string $name, ?string $model = null): bool|int|string|null
+    {
+        $options = $model === null ? $this->preset->adapterOptions : $this->preset->optionsFor($model);
+
+        return $options[$name] ?? null;
+    }
+
+    /**
+     * The capabilities of a model: the defaults of the format, with the capability options of the preset and of its
+     * model overrides read over them. Every adapter ends modelCapabilities() with it, so a preset states in the
+     * same words, for every format, where its server differs. Sends nothing.
+     *
+     * The options and their values: `tool_calling` (native, none), `forced_tool_call` (native, emulated, none),
+     * `parallel_tool_calls` (native, none), `structured_output` (native, emulated, none),
+     * `tools_with_structured_output` (native, emulated, none), `streaming` (native, emulated), `model_listing`
+     * (native, none), `temperature` (accepted, not_accepted) and `context_length` (an integer of 1 or more). An
+     * option that is not set leaves the default as it is.
+     *
+     * Without tool calling there is no forced tool call, there are no parallel tool calls and no tools with
+     * structured output; without structured output there are no tools with structured output. That holds whatever
+     * the other options say.
+     *
+     * @throws GatewayException not_configured, when an option holds a value outside its list; the detail names the
+     *                          option, never the value
+     */
+    final protected function capabilitiesFromOptions(string $model, Capabilities $formatDefaults): Capabilities
+    {
+        $options = $this->preset->optionsFor($model);
+
+        $native = ['native' => Support::Native];
+        $none = ['none' => Support::None];
+        $emulated = ['emulated' => Support::Emulated];
+
+        $toolCalling = $this->supportIn($options, 'tool_calling', $native + $none, $formatDefaults->toolCalling);
+        $forcedToolCall = $this->supportIn($options, 'forced_tool_call', $native + $emulated + $none, $formatDefaults->forcedToolCall);
+        $parallelToolCalls = $this->supportIn($options, 'parallel_tool_calls', $native + $none, $formatDefaults->parallelToolCalls);
+        $structuredOutput = $this->supportIn($options, 'structured_output', $native + $emulated + $none, $formatDefaults->structuredOutput);
+        $toolsWithStructuredOutput = $this->supportIn($options, 'tools_with_structured_output', $native + $emulated + $none, $formatDefaults->toolsWithStructuredOutput);
+        $streaming = $this->supportIn($options, 'streaming', $native + $emulated, $formatDefaults->streaming);
+        $modelListing = $this->supportIn($options, 'model_listing', $native + $none, $formatDefaults->modelListing);
+        $temperature = $this->supportIn($options, 'temperature', ['accepted' => Support::Native, 'not_accepted' => Support::None], $formatDefaults->temperature);
+
+        $contextLength = $options['context_length'] ?? $formatDefaults->contextLength;
+        if ($contextLength !== null && (! is_int($contextLength) || $contextLength < 1)) {
+            throw $this->failure(ErrorReason::NotConfigured, 'the option context_length of the preset has a value outside its list');
+        }
+
+        if ($toolCalling === Support::None) {
+            $forcedToolCall = Support::None;
+            $parallelToolCalls = Support::None;
+            $toolsWithStructuredOutput = Support::None;
+        }
+        if ($structuredOutput === Support::None) {
+            $toolsWithStructuredOutput = Support::None;
+        }
+
+        return new Capabilities(
+            $toolCalling,
+            $forcedToolCall,
+            $parallelToolCalls,
+            $structuredOutput,
+            $toolsWithStructuredOutput,
+            $streaming,
+            $modelListing,
+            $contextLength,
+            $temperature,
+        );
+    }
+
+    /**
      * An answer as an adapter knows it: without the latency, the attempts and the trace id, which the base fills in.
      *
      * @param list<ToolCall> $toolCalls
      * @param string|null $model the model that answered; null or empty when the provider does not say
      * @param StructuredResult|null $structured only when the adapter got the structured answer its own way
+     * @param OpaquePart|null $opaque what seal() gave for this text and these tool calls, when the answer held
+     *                                something that must go back unchanged and has no neutral form; the base drops
+     *                                a part that holds a credential of the gateway or is larger than 1 MiB
      */
     final protected function answer(
         Request $request,
@@ -325,6 +451,8 @@ abstract readonly class AbstractAdapter implements Gateway
         ?string $model = null,
         #[SensitiveParameter]
         ?StructuredResult $structured = null,
+        #[SensitiveParameter]
+        ?OpaquePart $opaque = null,
     ): Answer {
         return new Answer(
             $text,
@@ -336,7 +464,123 @@ abstract readonly class AbstractAdapter implements Gateway
             0,
             1,
             self::NO_TRACE_ID,
+            $opaque,
         );
+    }
+
+    /**
+     * The opaque part for an answer: what the provider asks back, bound to this adapter and to the answer it came
+     * with. Hand the part to answer(), with the same text and the same tool calls. Seal only when the answer held
+     * something that has no neutral form: an answer of plain text and tool calls has no opaque part.
+     *
+     * The part is one JSON object: the mark of the adapter (OPAQUE_FORMAT), the SHA-256 of the text and of the id,
+     * the name and the raw arguments of every tool call, and the content. It holds no name of a preset, a class or
+     * a provider. The mark and the hash are a check against mix-ups, not a signature: there is no secret in them.
+     * Of a tool call only the id, the name and the raw arguments are in the hash, not its decoded arguments.
+     *
+     * The content is written as JSON in one fixed form, whatever the settings of PHP, and unseal() gives it back as
+     * PHP arrays. That is not the bytes of the provider: an empty JSON object comes back as an empty list, an object
+     * with the names "0", "1", … as a list, and a number is written again in another spelling (a whole number too
+     * large for PHP was a float before it came here). Anything that must come back byte for byte is sealed as one
+     * string: the JSON text as it was received.
+     *
+     * A part of more than 1 MiB, or with more than 10,000 objects and lists in it, is not kept: the base returns
+     * the answer without it, as it does for a part that holds a credential, and the next round is then sent
+     * without the data.
+     *
+     * @param string $text the text of the answer, as it is handed to answer()
+     * @param list<ToolCall> $toolCalls the tool calls of the answer, as they are handed to answer()
+     * @param array<mixed> $content what the provider asks back, as the adapter chooses; not empty. Strings, numbers,
+     *                              true, false, null and arrays of them, at most 128 levels deep
+     * @throws InvalidValue when the adapter has no OPAQUE_FORMAT in its form, a tool call is no tool call, the
+     *                      content is empty or it cannot be written as JSON
+     */
+    final protected function seal(
+        #[SensitiveParameter]
+        string $text,
+        #[SensitiveParameter]
+        array $toolCalls,
+        #[SensitiveParameter]
+        array $content,
+    ): OpaquePart {
+        $mark = self::markOf(static::OPAQUE_FORMAT);
+        if ($mark === null) {
+            throw new InvalidValue('An adapter that seals needs the constant OPAQUE_FORMAT: a small letter and then one or two small letters or digits.');
+        }
+        if ($content === []) {
+            throw new InvalidValue('There is nothing to seal: the content is empty.');
+        }
+        $hash = self::hashOfAnswer($text, $toolCalls);
+        if ($hash === null) {
+            throw new InvalidValue('The tool calls to seal with must be a list of tool calls.');
+        }
+
+        $data = self::fixedJson(['f' => $mark, 'm' => $hash, 'c' => $content]);
+        if ($data === null) {
+            // Nothing of the content is in the refusal.
+            throw new InvalidValue('The content to seal cannot be written as JSON.');
+        }
+
+        return new OpaquePart($data);
+    }
+
+    /**
+     * The content this adapter sealed with this message, or null. It is given only when the message is an assistant
+     * message with an opaque part, the part is byte for byte what seal() of this adapter writes (its mark, a hash,
+     * a content that is not empty, in the one fixed form), it is within the limits of a part (1 MiB, and 10,000
+     * objects and lists), and its hash is the hash of the message as it is now: the text of its text parts and the id, the name and the raw
+     * arguments of its tool calls. Send the content in place of what you would build from the message.
+     *
+     * In every other case (no part, a part of another adapter or of another library, a part that was changed, a
+     * message whose text or tool calls were changed, an adapter without a mark in its form) this gives null and
+     * throws nothing: build the message from its neutral fields and send nothing of the part. A part with another
+     * mark is not even decoded.
+     *
+     * The content is not the provider's word. It comes from wherever the caller keeps its messages, and whoever
+     * can write there can choose it freely: there is no secret in a part, and the hash binds the text and the tool
+     * calls of the message to themselves, not to the content. So treat the content as you treat every other field
+     * of a request. Copy from it only the kinds of block and the fields your format documents, each with the type
+     * you expect, and never take an address, a header, a model name or a setting from it.
+     *
+     * @return array<mixed>|null
+     */
+    final protected function unseal(#[SensitiveParameter] Message $message): ?array
+    {
+        $mark = self::markOf(static::OPAQUE_FORMAT);
+        if ($message->role !== Role::Assistant || $mark === null) {
+            return null;
+        }
+
+        $data = null;
+        foreach ($message->parts as $part) {
+            if ($part instanceof OpaquePart) {
+                $data = $part->data;
+            }
+        }
+        // Before anything is decoded: the size, and the first bytes seal() of this adapter always writes. A part of
+        // another adapter can be large, and decoding takes many times its size in memory.
+        if ($data === null || strlen($data) > self::OPAQUE_LIMIT_BYTES || ! str_starts_with($data, '{"f":"' . $mark . '","m":"')) {
+            return null;
+        }
+        if (! self::isWithinTheLimits($data)) {
+            return null;
+        }
+
+        $envelope = json_decode($data, true);
+        if (! is_array($envelope) || ! is_string($envelope['m'] ?? null) || ! is_array($envelope['c'] ?? null) || $envelope['c'] === []) {
+            return null;
+        }
+        // Only the bytes seal() writes: no name twice, no escaped name, no other key, nothing before or after.
+        if (self::fixedJson(['f' => $mark, 'm' => $envelope['m'], 'c' => $envelope['c']]) !== $data) {
+            return null;
+        }
+
+        $hash = self::hashOfAnswer($message->text(), $message->toolCalls);
+        if ($hash === null || ! hash_equals($hash, $envelope['m'])) {
+            return null;
+        }
+
+        return $envelope['c'];
     }
 
     /**
@@ -427,7 +671,7 @@ abstract readonly class AbstractAdapter implements Gateway
                 $fault = $this->faultOfResponse($response);
             } elseif ($response !== null) {
                 try {
-                    $result = $this->read($response, $request, $attempt, $traceId, $started);
+                    $result = $this->read($response, $request, $attempt, $traceId, $started, $inUse);
                 } catch (GatewayException $thrown) {
                     $fault = self::faultOfAdapter($thrown, $response->status);
                 } catch (Exception) {
@@ -460,6 +704,7 @@ abstract readonly class AbstractAdapter implements Gateway
     }
 
     /**
+     * @param list<Secret> $inUse the secrets asked for this attempt alone: a token of the supplier
      * @return Answer|list<ModelInfo>
      */
     private function read(
@@ -469,19 +714,24 @@ abstract readonly class AbstractAdapter implements Gateway
         int $attempt,
         string $traceId,
         float $started,
+        #[SensitiveParameter]
+        array $inUse,
     ): Answer|array {
         if ($request === null) {
-            return $this->readModels($response);
+            return $this->withoutModelsThatRepeatACredential($this->readModels($response), $inUse);
         }
 
-        return $this->finished($this->readCompletion($response, $request), $request, $attempt, $traceId, $started);
+        return $this->finished($this->readCompletion($response, $request), $request, $attempt, $traceId, $started, $inUse);
     }
 
     /**
      * The answer of the adapter with what only the base knows.
      *
-     * @throws GatewayException provider_error, when the answer has no text and no tool call and was not cut off at
-     *                          the token limit; rejected, when the schema of the response format cannot be used
+     * @param list<Secret> $inUse the secrets asked for this attempt alone: a token of the supplier
+     * @throws GatewayException provider_error, when the answer has no text and no tool call and its finish reason
+     *                          is not one that explains it (cut off at the token limit, refused by the model,
+     *                          withheld by the provider); rejected, when the schema of the response format cannot
+     *                          be used
      */
     private function finished(
         #[SensitiveParameter]
@@ -490,10 +740,26 @@ abstract readonly class AbstractAdapter implements Gateway
         int $attempts,
         string $traceId,
         float $started,
+        #[SensitiveParameter]
+        array $inUse,
     ): Answer {
-        // A model that spent every token before it gave any output is cut off, not broken: that answer is returned.
-        if ($answer->text === '' && $answer->toolCalls === [] && $answer->finishReason !== FinishReason::Length) {
+        // A model that spent every token before it gave any output is cut off, not broken; one that declined, or
+        // whose output the provider withheld, gave no output on purpose. Those answers are returned. Without such
+        // a finish reason an answer that holds nothing is a broken response.
+        $explained = match ($answer->finishReason) {
+            FinishReason::Length, FinishReason::Refusal, FinishReason::ContentFilter => true,
+            FinishReason::Stop, FinishReason::ToolCalls, FinishReason::Other => false,
+        };
+        if ($answer->text === '' && $answer->toolCalls === [] && ! $explained) {
             throw $this->failure(ErrorReason::ProviderError, 'the answer has no text and no tool call');
+        }
+
+        // A server can repeat the credential it was sent. A tool call that holds it cannot be handed on, and a tool
+        // call cannot be handed on in part: the answer fails. The detail is fixed and holds nothing of the call.
+        foreach ($answer->toolCalls as $toolCall) {
+            if ($this->toolCallRepeatsACredential($toolCall, $inUse)) {
+                throw $this->failure(ErrorReason::ProviderError, self::TOOL_CALL_REPEATS_A_CREDENTIAL);
+            }
         }
 
         // The place of the structured check. An answer has a structured result when its request has a response
@@ -512,12 +778,137 @@ abstract readonly class AbstractAdapter implements Gateway
             $structured,
             $answer->toolCalls,
             $answer->finishReason,
-            $answer->model,
+            // A name that holds a control character or repeats a credential is not the name of a model.
+            Rules::isModelName($answer->model) && ! $this->repeatsACredential($answer->model, $inUse) ? $answer->model : $request->model,
             $answer->usage,
             $this->millisecondsSince($started),
             $attempts,
             $traceId,
+            $this->withoutCredential($answer->opaque, $inUse),
         );
+    }
+
+    /**
+     * The opaque part of an answer, or null when it must not travel on: it is over the limits of a part, or it
+     * holds a credential of the gateway anywhere in it, in any case of letters. The part is then dropped whole, as
+     * a provider code or a detail is. It would go to whatever stores the conversation, where nobody looks into it.
+     *
+     * A credential is searched as it is, as JSON writes it inside a string, and with every backslash taken out of
+     * both: a provider's own JSON text, sealed as one string, writes a slash as a backslash and a slash.
+     *
+     * @param list<Secret> $inUse the secrets asked for this attempt alone: a token of the supplier
+     */
+    private function withoutCredential(
+        #[SensitiveParameter]
+        ?OpaquePart $opaque,
+        #[SensitiveParameter]
+        array $inUse,
+    ): ?OpaquePart {
+        if ($opaque === null || ! self::isWithinTheLimits($opaque->data)) {
+            return null;
+        }
+
+        if ($this->repeatsACredential($opaque->data, $inUse)) {
+            return null;
+        }
+
+        return $opaque;
+    }
+
+    /**
+     * Whether a text a server wrote holds a credential of the gateway anywhere in it, in any case of letters. A
+     * credential is searched as it is, as JSON writes it inside a string, and with every backslash taken out of
+     * the text and of each of those forms: JSON text inside a string writes a slash as a backslash and a slash,
+     * and may write a character as an escape with its number.
+     *
+     * @param list<Secret> $inUse the secrets asked for this attempt alone: a token of the supplier
+     */
+    private function repeatsACredential(
+        #[SensitiveParameter]
+        string $text,
+        #[SensitiveParameter]
+        array $inUse,
+    ): bool {
+        if ($text === '') {
+            return false;
+        }
+
+        $bare = str_replace('\\', '', $text);
+        foreach ([...$this->credentials->secrets(), ...$inUse] as $secret) {
+            $plain = $secret->reveal();
+            $forms = [
+                $plain,
+                substr((string) json_encode($plain, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE), 1, -1),
+                substr((string) json_encode($plain, JSON_INVALID_UTF8_SUBSTITUTE), 1, -1),
+            ];
+            foreach ($forms as $form) {
+                if ($form !== '' && stripos($text, $form) !== false) {
+                    return true;
+                }
+            }
+
+            // With every backslash taken out of both: the credential as it is, and as JSON writes it. The second
+            // finds a credential in JSON text that was sealed as one string and writes a character as an escape
+            // with its number (a letter that is not ASCII, a line end of Unicode), whatever wrote that text.
+            foreach ($forms as $form) {
+                $bareForm = str_replace('\\', '', $form);
+                if ($bareForm !== '' && stripos($bare, $bareForm) !== false) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether the id, the name or the arguments of a tool call hold a credential of the gateway: the arguments as
+     * they arrived, and as they were decoded.
+     *
+     * @param list<Secret> $inUse
+     */
+    private function toolCallRepeatsACredential(
+        #[SensitiveParameter]
+        ToolCall $toolCall,
+        #[SensitiveParameter]
+        array $inUse,
+    ): bool {
+        $decoded = $toolCall->arguments === null
+            ? ''
+            : (string) json_encode($toolCall->arguments, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PARTIAL_OUTPUT_ON_ERROR);
+
+        return $this->repeatsACredential($toolCall->id, $inUse)
+            || $this->repeatsACredential($toolCall->name, $inUse)
+            || $this->repeatsACredential($toolCall->rawArguments, $inUse)
+            || $this->repeatsACredential($decoded, $inUse);
+    }
+
+    /**
+     * The model list without the entries whose id, name or an alias holds a credential of the gateway: such an
+     * entry is skipped, as an entry without a usable id is.
+     *
+     * @param array<mixed> $models what the adapter read
+     * @param list<Secret> $inUse
+     * @return list<ModelInfo>
+     */
+    private function withoutModelsThatRepeatACredential(
+        #[SensitiveParameter]
+        array $models,
+        #[SensitiveParameter]
+        array $inUse,
+    ): array {
+        $kept = [];
+        foreach ($models as $model) {
+            if (! $model instanceof ModelInfo) {
+                throw new WrongUse('The adapter gave a value that is not a model.');
+            }
+            if ($this->repeatsACredential(implode("\n", [$model->id, (string) $model->name, ...$model->aliases]), $inUse)) {
+                continue;
+            }
+            $kept[] = $model;
+        }
+
+        return $kept;
     }
 
     // ---------------------------------------------------------------------------------------------------------
@@ -633,13 +1024,24 @@ abstract readonly class AbstractAdapter implements Gateway
                                     break;
                                 }
                                 if ($event instanceof StreamFinished) {
-                                    $answer = $this->finished($event->answer, $request, $attempt, $traceId, $started);
+                                    $answer = $this->finished($event->answer, $request, $attempt, $traceId, $started, $inUse);
                                     $open = false;
                                     $this->reportFinished(Operation::Stream, $traceId, $attempt, $httpRequest, new HttpResponse($status, $headers, $read), null, false, $attemptStarted);
 
                                     yield new StreamFinished($answer);
 
                                     return;
+                                }
+                                // A tool call that repeats a credential is not handed on, in neither of its events.
+                                $repeats = match (true) {
+                                    $event instanceof ToolCallStarted => $this->repeatsACredential($event->id . "\n" . $event->name, $inUse),
+                                    $event instanceof ToolCallCompleted => $this->toolCallRepeatsACredential($event->toolCall, $inUse),
+                                    default => false,
+                                };
+                                if ($repeats) {
+                                    $fault = self::faultOfAdapter($this->failure(ErrorReason::ProviderError, self::TOOL_CALL_REPEATS_A_CREDENTIAL), $status);
+
+                                    break;
                                 }
                                 if ($event instanceof TextDelta) {
                                     $text .= $event->text;
@@ -782,6 +1184,7 @@ abstract readonly class AbstractAdapter implements Gateway
             $request->toolChoice->mode === ToolChoiceMode::Tool && $can->forcedToolCall === Support::None => 'this model cannot be made to call one named tool',
             $hasFormat && $can->structuredOutput === Support::None => 'this model cannot give a structured answer',
             $hasTools && $hasFormat && $can->toolsWithStructuredOutput === Support::None => 'this model cannot take tools and a response format in one request',
+            $request->temperature !== null && $can->temperature === Support::None => 'this model takes no temperature',
             default => null,
         };
         if ($detail !== null) {
@@ -846,7 +1249,8 @@ abstract readonly class AbstractAdapter implements Gateway
     }
 
     /**
-     * Refuses a request whose address does not start with the base URL of the gateway.
+     * Refuses a request whose address does not start with the base URL of the gateway, and adds the settings that
+     * travel as a header.
      */
     private function owned(#[SensitiveParameter] HttpRequest $template): HttpRequest
     {
@@ -861,7 +1265,71 @@ abstract readonly class AbstractAdapter implements Gateway
             );
         }
 
-        return $template;
+        return $this->withSettingHeaders($template);
+    }
+
+    /**
+     * The value of one capability option, or the default when the preset does not set it.
+     *
+     * @param array<string, bool|int|string> $options
+     * @param array<string, Support> $values the words of the option
+     * @throws GatewayException not_configured, when the value is not one of the words
+     */
+    private function supportIn(array $options, string $name, array $values, Support $default): Support
+    {
+        if (! array_key_exists($name, $options)) {
+            return $default;
+        }
+
+        $value = $options[$name];
+        if (! is_string($value) || ! isset($values[$value])) {
+            // The name is one of the fixed names above; the value is not copied.
+            throw $this->failure(ErrorReason::NotConfigured, 'the option ' . $name . ' of the preset has a value outside its list');
+        }
+
+        return $values[$value];
+    }
+
+    /**
+     * The request with the settings of the customer that travel as a header: for every field of the preset that
+     * names a header and that the customer filled in. The values were checked when the gateway was built. They are
+     * no secrets: they stand among the plain headers and show in the attempt reports.
+     */
+    private function withSettingHeaders(#[SensitiveParameter] HttpRequest $template): HttpRequest
+    {
+        $headers = [];
+        foreach ($this->preset->fields as $field) {
+            $value = $this->config->settings[$field->key] ?? '';
+            if ($field->header !== null && $value !== '') {
+                $headers[$field->header] = $value;
+            }
+        }
+        if ($headers === []) {
+            return $template;
+        }
+
+        // A name is cast before it is compared, and the headers are joined with a union, which keeps every name as
+        // it is: PHP makes a number of a name of digits only, and a spread would number such a name anew. Neither a
+        // field nor a request takes such a name, so this is a second lock.
+        $taken = [];
+        foreach ($template->headers + $template->secretHeaders as $name => $value) {
+            $taken[strtolower((string) $name)] = true;
+        }
+        foreach ($headers as $name => $value) {
+            if (isset($taken[strtolower((string) $name)])) {
+                // The request is an argument here: the refusal keeps where, not with what.
+                throw new WrongUse('An adapter must not set a header that a field of its preset fills: the base adds it.');
+            }
+        }
+
+        return new HttpRequest(
+            $template->method,
+            $template->url,
+            $template->headers + $headers,
+            $template->secretHeaders,
+            $template->timeoutSeconds,
+            $template->body,
+        );
     }
 
     /**
@@ -1001,6 +1469,15 @@ abstract readonly class AbstractAdapter implements Gateway
             $code = $this->providerCode($response);
         } catch (Exception) {
             // No code.
+        } catch (Error $thrown) {
+            $broken ??= self::adapterError($thrown);
+            unset($thrown);
+        }
+        try {
+            // A response that itself says "do not retry" keeps its reason, is not tried again and tells no wait.
+            $retryable = $retryable && $this->retryAllowed($response, $reason);
+        } catch (Exception) {
+            // It may be tried again.
         } catch (Error $thrown) {
             $broken ??= self::adapterError($thrown);
             unset($thrown);
@@ -1236,6 +1713,201 @@ abstract readonly class AbstractAdapter implements Gateway
     private function millisecondsSince(float $moment): int
     {
         return max(0, (int) round(($this->config->clock->monotonic() - $moment) * 1000));
+    }
+
+    /**
+     * What binds an opaque part to its answer: the SHA-256 of the text and then, for every tool call, of its id, its
+     * name and its raw arguments. Every field is written with its length before it, so no two answers share a hash
+     * by moving a character from one field to the next.
+     *
+     * @param array<mixed> $toolCalls
+     * @return string|null null when the tool calls are not a list of tool calls
+     */
+    private static function hashOfAnswer(
+        #[SensitiveParameter]
+        string $text,
+        #[SensitiveParameter]
+        array $toolCalls,
+    ): ?string {
+        $fields = [$text];
+        foreach ($toolCalls as $toolCall) {
+            if (! $toolCall instanceof ToolCall) {
+                return null;
+            }
+            $fields[] = $toolCall->id;
+            $fields[] = $toolCall->name;
+            $fields[] = $toolCall->rawArguments;
+        }
+
+        $hash = hash_init('sha256');
+        foreach ($fields as $field) {
+            hash_update($hash, strlen($field) . ':' . $field);
+        }
+
+        return hash_final($hash);
+    }
+
+    /**
+     * Whether an opaque part is small enough to be decoded: at most OPAQUE_LIMIT_BYTES, and at most
+     * OPAQUE_LIMIT_CONTAINERS objects and lists. The bytes are walked once and every string is stepped over, a
+     * backslash with the byte after it, so text that holds brackets does not count. No regular expression: its
+     * limits are settings of PHP, and a part must not be refused because of a setting. A string that never ends is
+     * not JSON and is over the limits.
+     */
+    private static function isWithinTheLimits(#[SensitiveParameter] string $data): bool
+    {
+        $length = strlen($data);
+        if ($length > self::OPAQUE_LIMIT_BYTES) {
+            return false;
+        }
+
+        $containers = 0;
+        $at = 0;
+        while (true) {
+            $at += strcspn($data, '"[{', $at);
+            if ($at >= $length) {
+                return true;
+            }
+            if ($data[$at] !== '"') {
+                if (++$containers > self::OPAQUE_LIMIT_CONTAINERS) {
+                    return false;
+                }
+                $at++;
+
+                continue;
+            }
+
+            // Inside a string: on to its closing quote.
+            $at++;
+            while (true) {
+                if ($at >= $length) {
+                    return false;
+                }
+                $at += strcspn($data, '"\\', $at);
+                if ($at >= $length) {
+                    return false;
+                }
+                if ($data[$at] === '"') {
+                    $at++;
+
+                    break;
+                }
+                $at += 2;
+            }
+        }
+    }
+
+    /**
+     * The mark of an adapter when it has the form of one, or null: a small letter and then one or two small letters
+     * or digits.
+     */
+    private static function markOf(string $mark): ?string
+    {
+        return preg_match('/^[a-z][a-z0-9]{1,2}$/D', $mark) === 1 ? $mark : null;
+    }
+
+    /**
+     * A value as JSON in one fixed form: the same bytes for the same value on every host. No setting of PHP changes
+     * it (json_encode() writes a float as serialize_precision says), and what json_decode() makes of these bytes
+     * gives these bytes again. A float is written with the fewest digits that give the same float back, always with
+     * an exponent, so it stays a float; minus zero is `-0e+0` and comes back as minus zero. An array that is a list
+     * is a JSON list, every other array an object.
+     *
+     * @return string|null null for what cannot be written: a text that is not valid UTF-8, a number that is not
+     *                     finite, an object other than a plain one, a resource, more than 128 levels
+     */
+    private static function fixedJson(#[SensitiveParameter] mixed $value): ?string
+    {
+        $written = '';
+
+        return self::writeFixedJson($value, 0, $written) ? $written : null;
+    }
+
+    /**
+     * Adds the value to what is written so far, piece by piece: a large value then takes its own size once, not a
+     * second copy of every item.
+     */
+    private static function writeFixedJson(
+        #[SensitiveParameter]
+        mixed $value,
+        int $depth,
+        #[SensitiveParameter]
+        string &$written,
+    ): bool {
+        if ($value === null) {
+            $written .= 'null';
+
+            return true;
+        }
+        if (is_bool($value)) {
+            $written .= $value ? 'true' : 'false';
+
+            return true;
+        }
+        if (is_int($value)) {
+            $written .= $value;
+
+            return true;
+        }
+        if (is_float($value)) {
+            if (! is_finite($value)) {
+                return false;
+            }
+            if ($value === 0.0) {
+                // sprintf() writes no sign for minus zero, and 0.0 === -0.0: its sign shows only in a division.
+                $written .= fdiv(1.0, $value) < 0.0 ? '-0e+0' : '0e+0';
+
+                return true;
+            }
+            for ($digits = 0; $digits < 17; $digits++) {
+                // The "e" of sprintf() always writes a point, whatever the locale of the host (its "f" does not).
+                $number = sprintf('%.' . $digits . 'e', $value);
+                if ((float) $number === $value) {
+                    $written .= $number;
+
+                    return true;
+                }
+            }
+
+            return false;
+        }
+        if (is_string($value)) {
+            $text = json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            if ($text === false) {
+                return false;
+            }
+            $written .= $text;
+
+            return true;
+        }
+        if ($value instanceof stdClass) {
+            $value = get_object_vars($value);
+        }
+        if (! is_array($value) || $depth >= 128) {
+            return false;
+        }
+
+        $list = array_is_list($value);
+        $written .= $list ? '[' : '{';
+        $first = true;
+        foreach ($value as $name => $item) {
+            if (! $first) {
+                $written .= ',';
+            }
+            $first = false;
+            if (! $list) {
+                if (! self::writeFixedJson((string) $name, $depth + 1, $written)) {
+                    return false;
+                }
+                $written .= ':';
+            }
+            if (! self::writeFixedJson($item, $depth + 1, $written)) {
+                return false;
+            }
+        }
+        $written .= $list ? ']' : '}';
+
+        return true;
     }
 
     private static function newTraceId(): string

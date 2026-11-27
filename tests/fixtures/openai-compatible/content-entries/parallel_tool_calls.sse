@@ -1,0 +1,8 @@
+data: {"id":"cmpl-example-0001","object":"chat.completion.chunk","created":1795000000,"model":"example-large-1","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}],"usage":null}
+
+data: {"id":"cmpl-example-0001","object":"chat.completion.chunk","created":1795000000,"model":"example-large-1","choices":[{"index":0,"delta":{"tool_calls":[{"id":"AbCdEf123","type":"function","index":0,"function":{"name":"lookup","arguments":{"city":"Paris"}}}]},"finish_reason":null}],"usage":null}
+
+data: {"id":"cmpl-example-0001","object":"chat.completion.chunk","created":1795000000,"model":"example-large-1","choices":[{"index":0,"delta":{"tool_calls":[{"id":"GhIjKl456","type":"function","index":1,"function":{"name":"lookup","arguments":{"city":"Rome"}}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}
+
+data: [DONE]
+

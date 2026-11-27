@@ -25,10 +25,17 @@ enum ContractFixture: string
     /** The output tokens every fixture reports, where the format reports usage. */
     public const int OUTPUT_TOKENS = 2;
 
+    /** The words that stand in the opaque data of ToolCallWithOpaqueData, and nowhere else in that answer. */
+    public const string OPAQUE_MARKER = 'opaque-tracer';
+
     /** The text "Hello.", ended by itself. As a stream: in two pieces or more, the first of them in the first chunk. */
     case PlainAnswer = 'plain_answer';
 
-    /** No text needed; one call of the tool "lookup" with the arguments {"city":"Paris"}; ended for tool calls. */
+    /**
+     * No text needed; one call of the tool "lookup" with the arguments {"city":"Paris"}; ended for tool calls. An
+     * answer that holds a tool call ends for tool calls whatever word the format has for its end: a format that has
+     * no finish reason of its own for a tool call, and says the model stopped by itself, shows that in this fixture.
+     */
     case ToolCall = 'tool_call';
 
     /** Two calls of "lookup" in one answer: {"city":"Paris"}, then {"city":"Rome"}; ended for tool calls. */
@@ -56,6 +63,29 @@ enum ContractFixture: string
     case EmptyAnswer = 'empty_answer';
 
     /**
+     * The answer of ToolCall, and beside it data of the format that has no neutral form and that the provider wants
+     * back, unchanged, in the next request. That data holds the words "opaque-tracer"; the text and the tool call of
+     * the answer do not. The gateway gives it as the opaque part of the answer, and sends it back only with the
+     * message it came with. The fixtures of a format that has no such data give NotApplicable for this case, for the
+     * whole response and for the stream alike. The words are chosen so that the search for the key cannot find them.
+     */
+    case ToolCallWithOpaqueData = 'tool_call_with_opaque_data';
+
+    /**
+     * The text "I cannot help with that.", ended because the model declined to answer. The fixtures of a format
+     * that cannot tell a refusal from an answer that ended by itself give NotApplicable for this case, for the whole
+     * response and for the stream alike.
+     */
+    case Refused = 'refused';
+
+    /**
+     * A successful response with no text and no tool call, ended because the provider withheld the output: an
+     * answer, not an error. The fixtures of a format that never says so give NotApplicable for this case, for the
+     * whole response and for the stream alike.
+     */
+    case Withheld = 'withheld';
+
+    /**
      * The text the neutral answer must hold; null: any text, the set does not look at it.
      */
     public function text(): ?string
@@ -65,8 +95,10 @@ enum ContractFixture: string
             self::StructuredValid => '{"city":"Paris","days":3}',
             self::StructuredInvalid => '{"city":"Paris","days":"three"}',
             self::CutOff => '{"city":"Par',
-            self::EmptyAnswer => '',
-            self::ToolCall, self::ParallelToolCalls, self::GarbledToolCall, self::ToolCallBesideResponseFormat => null,
+            self::EmptyAnswer, self::Withheld => '',
+            self::Refused => 'I cannot help with that.',
+            self::ToolCall, self::ParallelToolCalls, self::GarbledToolCall, self::ToolCallBesideResponseFormat,
+            self::ToolCallWithOpaqueData => null,
         };
     }
 
@@ -78,7 +110,7 @@ enum ContractFixture: string
     public function toolCalls(): array
     {
         return match ($this) {
-            self::ToolCall, self::ToolCallBesideResponseFormat => [
+            self::ToolCall, self::ToolCallBesideResponseFormat, self::ToolCallWithOpaqueData => [
                 ToolCall::decoded('call_0', 'lookup', ['city' => 'Paris'], '{"city":"Paris"}'),
             ],
             self::ParallelToolCalls => [
@@ -96,8 +128,33 @@ enum ContractFixture: string
     {
         return match ($this) {
             self::CutOff => FinishReason::Length,
+            self::Refused => FinishReason::Refusal,
+            self::Withheld => FinishReason::ContentFilter,
             self::PlainAnswer, self::StructuredValid, self::StructuredInvalid, self::EmptyAnswer => FinishReason::Stop,
-            default => FinishReason::ToolCalls,
+            self::ToolCall, self::ParallelToolCalls, self::GarbledToolCall, self::ToolCallBesideResponseFormat,
+            self::ToolCallWithOpaqueData => FinishReason::ToolCalls,
+        };
+    }
+
+    /**
+     * Whether the fixtures of a format may say this answer does not apply to it. Every other answer exists in every
+     * format.
+     */
+    public function mayNotApply(): bool
+    {
+        return in_array($this, [self::ToolCallWithOpaqueData, self::Refused, self::Withheld], true);
+    }
+
+    /**
+     * The answer in a few words, for the reason of a skipped test.
+     */
+    public function inWords(): string
+    {
+        return match ($this) {
+            self::ToolCallWithOpaqueData => 'an answer with opaque data',
+            self::Refused => 'an answer the model declined to give',
+            self::Withheld => 'an answer the provider withheld',
+            default => 'the answer "' . $this->value . '"',
         };
     }
 

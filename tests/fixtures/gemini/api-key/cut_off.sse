@@ -1,0 +1,4 @@
+data: {"candidates":[{"index":0,"content":{"role":"model","parts":[{"text":"{\"city\":"}]}}],"usageMetadata":{"promptTokenCount":3,"candidatesTokenCount":1,"totalTokenCount":4},"modelVersion":"example-generate-1","responseId":"resp-example01"}
+
+data: {"candidates":[{"index":0,"content":{"role":"model","parts":[{"text":"\"Par"}]},"finishReason":"MAX_TOKENS"}],"usageMetadata":{"promptTokenCount":3,"candidatesTokenCount":2,"totalTokenCount":5},"modelVersion":"example-generate-1","responseId":"resp-example01"}
+

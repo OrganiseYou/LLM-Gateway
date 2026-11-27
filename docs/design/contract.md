@@ -285,7 +285,12 @@ All in `OrganiseYou\LlmGateway\Contract`. Meet LR-07, LR-33.
 | `ToolCalls = 'tool_calls'` | The model asks for tool calls. |
 | `Length = 'length'` | Cut off at the token limit. |
 | `ContentFilter = 'content_filter'` | The provider withheld the output. |
+| `Refusal = 'refusal'` | The model declined to answer (G67, LG-30). |
 | `Other = 'other'` | A reason the format gives that fits none of the above. |
+
+A `match` over `FinishReason` has an arm for every case or a default arm. An answer without text and without a tool
+call is returned as an answer when its finish reason is `Length`, `ContentFilter` or `Refusal`; with any other finish
+reason it is `provider_error` (section 7.3). A prompt the provider refused is the error `rejected`, never an answer.
 
 ### 4.2 `Usage` (value)
 
@@ -368,9 +373,11 @@ In `OrganiseYou\LlmGateway\Contract`. Meet LR-10, LR-11, G16.
 | `streaming` | `Support` | `Native`, or `Emulated`: the whole answer as one text event (LR-12). An adapter never reports `None` here. |
 | `modelListing` | `Support` | Does `models()` work? `Native` or `None`. |
 | `contextLength` | `?int` | The context length in tokens when it is known without a request, else null. `ModelInfo::$contextLength` gives it per model when the model list tells it. |
+| `temperature` | `Support` | Does the model take a temperature? `Native`: the temperature of a request is sent. `None`: the model takes none. The last constructor parameter, with the default `Native` (G68, LG-30). |
 
 Validation, each throws: `contextLength` below 1; `toolCalling` is `None` while `forcedToolCall` or
-`parallelToolCalls` is not `None`; `structuredOutput` is `None` while `toolsWithStructuredOutput` is not `None`.
+`parallelToolCalls` is not `None`; `structuredOutput` is `None` while `toolsWithStructuredOutput` is not `None`;
+`streaming` is `None`; `modelListing` or `temperature` is `Emulated`.
 
 What the gateway does with them:
 
@@ -380,6 +387,7 @@ What the gateway does with them:
 | `ToolChoice::tool` | `forcedToolCall` is `None` | `not_supported`, before any request |
 | a response format | `structuredOutput` is `None` | `not_supported`, before any request |
 | tools and a response format | `toolsWithStructuredOutput` is `None` | `not_supported`, before any request |
+| a temperature, also 0.0 | `temperature` is `None` | `not_supported`, before any request; the value is never dropped |
 | anything `Emulated` | | the adapter does it; the caller sees the normal answer |
 
 `parallelToolCalls` is information for the caller; no request is refused on it. A caller never asks which provider it
@@ -485,11 +493,11 @@ unknown model), never invent a ninth reason.
 | What happened | Reason | Retried |
 |---|---|---|
 | Status 401 or 403 | `credentials_rejected` | no |
-| Status 429 | `rate_limited`, with `retryAfterSeconds` when the response tells it | yes |
-| Status 408, or 500 to 599 | `unavailable` | yes |
+| Status 429 | `rate_limited`, with `retryAfterSeconds` when the response tells it. Not when the response forbids a retry (`retryAllowed()` says no, section 8.2 rule 1): then the error tells no wait (G82) | yes, unless the response forbids it |
+| Status 408, or 500 to 599 | `unavailable`; no `retryAfterSeconds` when the response forbids a retry (G82) | yes, unless the response forbids it |
 | Status 300 to 399 | `unavailable` | no (LR-29) |
 | Any other status 400 to 499 | `rejected` | no |
-| Status 200 to 299 with an error in the body, with no text and no tool call, or with a body that cannot be decoded | `provider_error` | no |
+| Status 200 to 299 with an error in the body, with no text and no tool call (unless the finish reason is `Length`, `ContentFilter` or `Refusal`: that is an answer), or with a body that cannot be decoded | `provider_error` | no |
 | `TransportFailure::ConnectionFailed` | `unavailable` | yes |
 | `TransportFailure::TimedOut` | `timeout` | no |
 | `TransportFailure::Redirected` | `unavailable` | no |
@@ -583,7 +591,9 @@ waits (G32).
 
 For `complete`, `models`, each request of `check`, and `stream` until its first event:
 
-1. Only the rows marked "yes" in section 7.3 are retried (LR-34).
+1. Only the rows marked "yes" in section 7.3 are retried (LR-34). A failed response of such a row that itself says
+   "do not retry" is not retried: the adapter says so through `retryAllowed()` (section 13). The call then fails at
+   once with the reason of that row, and its error tells no wait (G71, G82).
 2. When the response tells a wait (the `Retry-After` header as seconds or as a date, or a field the format documents)
    and it is above `maxProviderWaitSeconds`: fail at once with this attempt's error, `retryAfterSeconds` filled.
 3. When it tells a wait within the maximum: wait that long. Otherwise wait `waitsSeconds[n-1]` before retry n.
@@ -914,7 +924,14 @@ S4. LG-11 may add fields to it; it may not move logic into it.
 customer may replace), `CustomerMust = 'customer_must'` (no default).
 
 `PresetField` (value): `string $key` (throws unless `^[a-z][a-z0-9_]{0,31}$`), `string $label` (throws when empty),
-`bool $required`, `?string $pattern` (a regular expression the value must match; default null).
+`bool $required`, `?string $pattern` (a regular expression the value must match; default null), `?string $header`
+(default null; since LG-31, `adapters.md` 5.5 and G85: the name of a request header the setting is sent in with every
+request when the customer filled it in; throws unless it is an HTTP token without an underscore that is not digits only, when it is a header
+of the sign-in, the address or the connection, or when the field has no `pattern`).
+
+`ModelOverride` (value, since LG-31, `adapters.md` 5.4): `string $pattern` (throws when empty or when it holds a
+control character; `*` stands for any run of characters; compared with the whole model name, case-sensitive),
+`array<string, bool|int|string> $adapterOptions` (as `Preset::$adapterOptions`). Method `matches(string $model): bool`.
 
 `Preset` (value):
 
@@ -933,6 +950,17 @@ customer may replace), `CustomerMust = 'customer_must'` (no default).
 | `dataLocationSource` | `?string` | — The link to that statement. |
 | `sendsNoStoreOption` | `bool` | — True when the adapter sends the provider's option not to store the conversation (LR-31). |
 | `adapterOptions` | `array<string, bool\|int\|string>` | a value is of another type. Differences between servers of one format. |
+| `modelOverrides` | `list<ModelOverride>` | not a list, or a value is no `ModelOverride`. Default `[]`. Since LG-31. |
+| `storageNote` | `string` | — What the provider keeps of a request and how the customer arranges otherwise, in one plain sentence (LR-31). Default `''`. Since LG-31. |
+| `storageNoteSource` | `?string` | — The link to that statement. Default null. Since LG-31. |
+
+Since LG-31 `fields` also throws when a field is sent in the header of `keyHeader` or two fields are sent in the same
+header, compared without case (G85).
+
+Methods (since LG-31): `placeholders(): list<string>`; `optionsFor(string $model): array<string, bool|int|string>`,
+the preset's options overlaid by every override that matches, in list order, a later one over an earlier one;
+`withAdapterOptions(array $options): self`, a copy with these options laid over its own (the overrides are not
+changed and still win for the models they fit).
 
 ### 13.2 `GatewayConfig` (value, root namespace)
 
@@ -972,6 +1000,8 @@ naming the field key, never a value) when:
 3. The rule is `Fixed` and `$config->baseUrl` is not null.
 4. A required field has no value in `$config->settings`, or a value does not match the field's `pattern`.
 5. `$config->settings` holds a key that is not a field of the preset.
+6. Since LG-31: a setting whose field names a `header` holds a character that is not visible ASCII (`0x21` to
+   `0x7E`), whatever the field's `pattern` allows (G85).
 
 Otherwise it returns `new ($preset->adapter)($preset, $config, $credentials, $transport)`.
 
@@ -1007,13 +1037,30 @@ abstract protected function modelsRequest(float $timeoutSeconds): HttpRequest;
 abstract protected function readModels(HttpResponse $response): array;
 protected function providerCode(HttpResponse $response): ?string;          // default null
 protected function refineReason(HttpResponse $response, ErrorReason $reason): ErrorReason;   // default: unchanged
+protected function retryAllowed(HttpResponse $response, ErrorReason $reason): bool;          // default: true (LG-30)
 ```
+
+What the base offers for the options of a preset (final; since LG-31, `adapters.md` 5.4):
+
+```php
+final protected function option(string $name, ?string $model = null): bool|int|string|null;
+final protected function capabilitiesFromOptions(string $model, Capabilities $formatDefaults): Capabilities;
+```
+
+`option()` reads from `Preset::optionsFor($model)` when a model is given, else from the preset's own options; null
+when not set. `capabilitiesFromOptions()` reads the capability options of `adapters.md` 2.3 over the defaults of the
+format; a value outside its list is thrown as `not_configured`; tool calling `none` makes a forced tool call, parallel
+tool calls and tools with structured output `none`, and structured output `none` makes tools with structured output
+`none` (G86). Every adapter's `modelCapabilities()` ends with it.
 
 Rules the base enforces:
 
 - Every URL is `resolveBaseUrl()` plus a path and query from the adapter, through one protected method
   `url(string $path, array $query = []): string`. No other code builds a URL, so the host never changes (LR-29).
 - `capabilities()` is written by each adapter and must send nothing (G27).
+- Since LG-31: a setting whose field names a `header` is added to every request of the gateway (completion, stream,
+  model list, every attempt) among the plain headers, when it is not empty. A request of an adapter that already
+  holds that header is refused as `WrongUse` and nothing is sent (G85).
 - `SseReader::read(iterable<string> $chunks): iterable<SseEvent>` (final, no state between calls) cuts raw chunks into
   events; `SseEvent` (value): `?string $event`, `string $data`, `?string $id`.
 
@@ -1026,10 +1073,15 @@ Rules the base enforces:
 yields the fallback events of section 6 rule 4; for `complete` after `willStream`, it returns the answer of the
 `StreamFinished` event. When a scripted text answer meets a request with a response format, it runs
 `StructuredAnswerChecker`, so an application's repair loop is testable. An unscripted call throws `LogicException`.
+The fake returns a scripted answer without text and without a tool call when its finish reason is `Length`,
+`ContentFilter` or `Refusal`, and with capabilities given it refuses a temperature for a model that takes none.
 
 `Testing\ContractTestCase` is the shared set of LR-40. An adapter's test supplies a gateway built on `FakeTransport`
 and its fixtures; the fake supplies itself. The set asserts the rules of sections 4, 6, 7.3, 8.2, 8.3 and 11
-(no marker key in any output).
+(no marker key in any output). Since LG-30 it has the answers `Refused` and `Withheld` (a format may say they do not
+apply), the refusal of a temperature where the capability says none, and the failure `RetryForbidden`: a status 503
+whose response forbids a retry, built by `AdapterFixtures::retryForbidden()`, which a format without such a sign
+answers with `NotApplicable`.
 
 Architecture tests must list `src/Adapter/Shared` next to `src/Contract`, `src/Loop`, `src/Testing` and
 `src/Transport` as folders where no provider name may appear.

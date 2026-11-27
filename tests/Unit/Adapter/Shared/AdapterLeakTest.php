@@ -13,6 +13,7 @@ use OrganiseYou\LlmGateway\Contract\ForeignFault;
 use OrganiseYou\LlmGateway\Contract\GatewayException;
 use OrganiseYou\LlmGateway\Contract\Internal\Rules;
 use OrganiseYou\LlmGateway\Contract\InvalidValue;
+use OrganiseYou\LlmGateway\Contract\OpaquePart;
 use OrganiseYou\LlmGateway\Contract\RetryPolicy;
 use OrganiseYou\LlmGateway\Contract\Stream\StreamFailed;
 use OrganiseYou\LlmGateway\Contract\Stream\StreamFinished;
@@ -58,7 +59,7 @@ function leakOf(string $scenario): array
         default => new BearerKey(LEAK_MARKER),
     };
     $options = match ($scenario) {
-        'a stream of a format without streaming' => ['streams' => false],
+        'a stream of a format without streaming', 'a tool call that repeats the key, in a stream of a format without streaming' => ['streams' => false],
         'an address outside the base URL' => ['foreign_url' => 'https://other.example.test/talk'],
         default => [],
     };
@@ -103,6 +104,46 @@ function leakOf(string $scenario): array
             case 'a stream in which the code of the adapter fails':
                 $transport->willStream(200, $headers, Talk::event('say', ['explode' => 'error', 'echo' => LEAK_MARKER]));
                 $left = Talk::events($gateway->stream($request));
+                break;
+            case 'an answer whose model repeats the key':
+                $transport->willReturn(new HttpResponse(200, $headers, Talk::json(['say' => 'Hello.', 'end' => 'done', 'by' => 'model-of-' . LEAK_MARKER])));
+                $left = $gateway->complete($request);
+                break;
+            case 'a stream whose model repeats the key':
+                $transport->willStream(200, $headers, $stream[1], Talk::event('end', ['end' => 'done', 'by' => strtoupper(LEAK_MARKER)]));
+                $left = Talk::events($gateway->stream($request));
+                break;
+            case 'a tool call whose id repeats the key':
+                $transport->willReturn(new HttpResponse(200, $headers, Talk::json(['say' => '', 'end' => 'calls', 'calls' => [['ref' => LEAK_MARKER, 'tool' => 'lookup', 'input' => '{}']]])));
+                $left = $gateway->complete($request);
+                break;
+            case 'a tool call whose name repeats the key':
+                $transport->willReturn(new HttpResponse(200, $headers, Talk::json(['say' => '', 'end' => 'calls', 'calls' => [['ref' => 'ref_1', 'tool' => 'lookup_' . LEAK_MARKER, 'input' => '{}']]])));
+                $left = $gateway->complete($request);
+                break;
+            case 'a tool call whose arguments repeat the key':
+                $transport->willReturn(new HttpResponse(200, $headers, Talk::json(['say' => '', 'end' => 'calls', 'calls' => [['ref' => 'ref_1', 'tool' => 'lookup', 'input' => Talk::json(['authorization' => 'Bearer ' . LEAK_MARKER])]]])));
+                $left = $gateway->complete($request);
+                break;
+            case 'a tool call whose unreadable arguments repeat the key':
+                $transport->willReturn(new HttpResponse(200, $headers, Talk::json(['say' => '', 'end' => 'calls', 'calls' => [['ref' => 'ref_1', 'tool' => 'lookup', 'input' => '{"key": "' . LEAK_MARKER]]])));
+                $left = $gateway->complete($request);
+                break;
+            case 'a tool call that is announced with the key, in a stream':
+                $transport->willStream(200, $headers, $stream[1], Talk::event('call_open', ['ref' => 'ref_1', 'tool' => LEAK_MARKER]), Talk::event('end', ['end' => 'calls']));
+                $left = Talk::events($gateway->stream($request));
+                break;
+            case 'a tool call whose arguments repeat the key, in a stream':
+                $transport->willStream(200, $headers, $stream[1], Talk::event('call_open', ['ref' => 'ref_1', 'tool' => 'lookup']), Talk::event('call', ['ref' => 'ref_1', 'tool' => 'lookup', 'input' => Talk::json(['key' => LEAK_MARKER])]), Talk::event('end', ['end' => 'calls']));
+                $left = Talk::events($gateway->stream($request));
+                break;
+            case 'a tool call that repeats the key, in a stream of a format without streaming':
+                $transport->willReturn(new HttpResponse(200, $headers, Talk::json(['say' => '', 'end' => 'calls', 'calls' => [['ref' => 'ref_1', 'tool' => 'lookup', 'input' => Talk::json(['key' => LEAK_MARKER])]]])));
+                $left = Talk::events($gateway->stream($request));
+                break;
+            case 'a model list whose entries repeat the key':
+                $transport->willReturn(new HttpResponse(200, $headers, Talk::json(['items' => [['key' => LEAK_MARKER], ['key' => 'model-a', 'title' => 'Model of ' . LEAK_MARKER], ['key' => 'model-b', 'title' => 'Model B']]])));
+                $left = $gateway->models(10.0);
                 break;
             case 'the model list':
                 $transport->willReturn(new HttpResponse(200, $headers, Talk::json(['items' => [['key' => 'model-a', 'owner' => LEAK_MARKER]]])));
@@ -250,6 +291,16 @@ describe('what leaves complete(), stream() and models()', function (): void {
         ['a stream in which the adapter throws', 'failed: provider_error'],
         ['a stream in which the code of the adapter fails', ForeignFault::class],
         ['the model list', 'models'],
+        ['an answer whose model repeats the key', 'answer'],
+        ['a stream whose model repeats the key', 'finished'],
+        ['a tool call whose id repeats the key', 'provider_error'],
+        ['a tool call whose name repeats the key', 'provider_error'],
+        ['a tool call whose arguments repeat the key', 'provider_error'],
+        ['a tool call whose unreadable arguments repeat the key', 'provider_error'],
+        ['a tool call that is announced with the key, in a stream', 'failed: provider_error'],
+        ['a tool call whose arguments repeat the key, in a stream', 'failed: provider_error'],
+        ['a tool call that repeats the key, in a stream of a format without streaming', 'failed: provider_error'],
+        ['a model list whose entries repeat the key', 'models'],
         ['a model list that is refused', 'credentials_rejected'],
         ['a wrong timeout', InvalidValue::class],
         ['a sign-in that is refused', 'credentials_rejected'],
@@ -282,6 +333,61 @@ describe('what leaves complete(), stream() and models()', function (): void {
         $error = Talk::errorOf(fn() => Talk::gateway($transport, credentials: new BearerKey('another-key'))->complete(Talk::request()));
 
         expect($error->providerCode)->toBe(strtolower(LEAK_MARKER));
+    });
+
+    it('names the model of the request when the model of the answer repeats a credential or holds a control character', function (string $by): void {
+        $transport = (new FakeTransport())
+            ->willReturn(new HttpResponse(200, [], Talk::json(['say' => 'Hello.', 'end' => 'done', 'by' => $by])))
+            ->willStream(200, [], Talk::event('say', ['piece' => 'Hello.']), Talk::event('end', ['end' => 'done', 'by' => $by]));
+        $gateway = Talk::gateway($transport, credentials: new BearerKey('key-of-the-test'));
+
+        expect($gateway->complete(Talk::request())->model)->toBe('model-a')
+            ->and(Talk::finishedIn(Talk::events($gateway->stream(Talk::request())))->answer->model)->toBe('model-a');
+    })->with([
+        'the credential' => ['key-of-the-test'],
+        'the credential inside a name, in capitals' => ['model-KEY-OF-THE-TEST-0001'],
+        'a line end' => ["model-a\nSet-Cookie: x"],
+        'a null byte' => ["model-a\0"],
+    ]);
+
+    it('keeps the model of the answer when it is a plain name', function (): void {
+        $transport = (new FakeTransport())->willReturn(new HttpResponse(200, [], Talk::json(['say' => 'Hello.', 'end' => 'done', 'by' => 'model-a-0001'])));
+
+        expect(Talk::gateway($transport)->complete(Talk::request())->model)->toBe('model-a-0001');
+    });
+
+    it('skips an entry of the model list whose id or name repeats a credential, and keeps the others', function (): void {
+        $transport = (new FakeTransport())->willReturn(new HttpResponse(200, [], Talk::json(['items' => [
+            ['key' => 'key-of-the-test'],
+            ['key' => 'model-a', 'title' => 'Model A'],
+            ['key' => 'model-b', 'title' => 'The key-of-the-test model'],
+            ['key' => 'model-c'],
+        ]])));
+        $models = Talk::gateway($transport, credentials: new BearerKey('key-of-the-test'))->models(10.0);
+
+        expect(array_map(fn($model): string => $model->id, $models))->toBe(['model-a', 'model-c']);
+    });
+
+    it('fails an answer whose tool call repeats a credential, whole, with a fixed detail, and hands on no event that holds it', function (): void {
+        $call = ['ref' => 'ref_2', 'tool' => 'lookup', 'input' => Talk::json(['auth' => 'key-of-the-test'])];
+        $transport = (new FakeTransport())
+            ->willReturn(new HttpResponse(200, [], Talk::json(['say' => 'One moment.', 'end' => 'calls', 'calls' => [['ref' => 'ref_1', 'tool' => 'lookup', 'input' => '{}'], $call]])))
+            ->willStream(200, [], Talk::event('say', ['piece' => 'One moment.']), Talk::event('call_open', ['ref' => 'ref_1', 'tool' => 'lookup']), Talk::event('call', ['ref' => 'ref_1', 'tool' => 'lookup', 'input' => '{}']), Talk::event('call_open', ['ref' => 'ref_2', 'tool' => 'lookup']), Talk::event('call', $call), Talk::event('end', ['end' => 'calls']));
+        $gateway = Talk::gateway($transport, retry: new RetryPolicy([1.0], 60.0), credentials: new BearerKey('key-of-the-test'));
+
+        $error = Talk::errorOf(fn() => $gateway->complete(Talk::request()));
+        expect($error->reason->value)->toBe('provider_error')
+            ->and($error->detail)->toBe('a tool call of the answer repeats a credential of the gateway and is not handed on')
+            ->and($error->attempts)->toBe(1);
+
+        $events = Talk::events($gateway->stream(Talk::request()));
+        $failed = Talk::failedIn($events);
+        // The call before it was whole and is kept; the one that repeats the credential is in no event.
+        expect(count($events))->toBe(5)
+            ->and($failed->error->detail)->toBe('a tool call of the answer repeats a credential of the gateway and is not handed on')
+            ->and($failed->textSoFar)->toBe('One moment.')
+            ->and(array_map(fn($toolCall): string => $toolCall->id, $failed->toolCallsSoFar))->toBe(['ref_1'])
+            ->and($transport->requests())->toHaveCount(2);
     });
 
     it('shows no key in a dump of the gateway itself, apart from what the transport of the host holds', function (): void {
@@ -320,11 +426,19 @@ describe('the parameters that carry a response, a request or a secret', function
         'providerCode' => [AbstractAdapter::class, 'providerCode', ['response']],
         'refineReason' => [AbstractAdapter::class, 'refineReason', ['response']],
         'retryAfterSeconds' => [AbstractAdapter::class, 'retryAfterSeconds', ['response']],
-        'answer' => [AbstractAdapter::class, 'answer', ['text', 'toolCalls', 'model', 'structured']],
+        'answer' => [AbstractAdapter::class, 'answer', ['text', 'toolCalls', 'model', 'structured', 'opaque']],
+        'seal' => [AbstractAdapter::class, 'seal', ['text', 'toolCalls', 'content']],
+        'unseal' => [AbstractAdapter::class, 'unseal', ['message']],
+        'withoutCredential' => [AbstractAdapter::class, 'withoutCredential', ['opaque', 'inUse']],
+        'hashOfAnswer' => [AbstractAdapter::class, 'hashOfAnswer', ['text', 'toolCalls']],
+        'fixedJson' => [AbstractAdapter::class, 'fixedJson', ['value']],
+        'writeFixedJson' => [AbstractAdapter::class, 'writeFixedJson', ['value', 'written']],
+        'isWithinTheLimits' => [AbstractAdapter::class, 'isWithinTheLimits', ['data']],
+        'OpaquePart' => [OpaquePart::class, '__construct', ['data']],
         'failure' => [AbstractAdapter::class, 'failure', ['detail', 'providerCode']],
         'exchange' => [AbstractAdapter::class, 'exchange', ['template']],
-        'read' => [AbstractAdapter::class, 'read', ['response']],
-        'finished' => [AbstractAdapter::class, 'finished', ['answer']],
+        'read' => [AbstractAdapter::class, 'read', ['response', 'inUse']],
+        'finished' => [AbstractAdapter::class, 'finished', ['answer', 'inUse']],
         'guarded' => [AbstractAdapter::class, 'guarded', ['chunks', 'read']],
         'whatTheAdapterReads' => [AbstractAdapter::class, 'whatTheAdapterReads', ['chunks']],
         'unreadable' => [AbstractAdapter::class, 'unreadable', ['broken']],

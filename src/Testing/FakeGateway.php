@@ -46,10 +46,16 @@ use OrganiseYou\LlmGateway\Contract\WrongUse;
  *   failure; a scripted text or tool call then gets a new one.
  * - A request with a response format gets a structured result unless the answer holds tool calls: the one that was
  *   scripted, or else the same check of the text that a real gateway runs. A request without one never gets one.
- * - An answer without text and without a tool call that was not cut off at the token limit is a provider error.
+ * - An answer without text and without a tool call is returned when its finish reason explains it (cut off at the
+ *   token limit, refused by the model, withheld by the provider); with any other finish reason it is a provider
+ *   error.
  * - stream() throws no gateway error: a failure is the last event.
- * - With withCapabilities(), a request that asks what those capabilities lack is refused as not supported, and no
- *   scripted entry is used for it. Until then the fake says it can do everything.
+ * - With withCapabilities(), a request that asks what those capabilities lack (tools, a forced tool call, a
+ *   response format, a temperature for a model that takes none) is refused as not supported, and no scripted entry
+ *   is used for it. Until then the fake says it can do everything.
+ * - It never makes an opaque part. One that a scripted answer holds reaches the caller in the answer and in its
+ *   toMessage(); a recorded request holds the parts it was sent, so a test can assert that the part went into the
+ *   next round. The fake does not judge a part: it has no provider to send it to.
  *
  * Its script and its record are the state of one object, on purpose: it lives in a test.
  */
@@ -381,6 +387,7 @@ final class FakeGateway implements Gateway
             $request->toolChoice->mode === ToolChoiceMode::Tool && $can->forcedToolCall === Support::None => 'this model cannot be made to call one named tool',
             $hasFormat && $can->structuredOutput === Support::None => 'this model cannot give a structured answer',
             $hasTools && $hasFormat && $can->toolsWithStructuredOutput === Support::None => 'this model cannot take tools and a response format in one request',
+            $request->temperature !== null && $can->temperature === Support::None => 'this model takes no temperature',
             default => null,
         };
         if ($detail !== null) {
@@ -433,14 +440,19 @@ final class FakeGateway implements Gateway
      * The answer as a real gateway hands it over: with the trace id of the call and the structured result the
      * request asks for.
      *
-     * @throws GatewayException provider_error, for an answer without text and without a tool call that was not cut
-     *                          off; rejected, when the schema of the response format cannot be used
+     * @throws GatewayException provider_error, for an answer without text and without a tool call whose finish
+     *                          reason does not explain it; rejected, when the schema of the response format cannot
+     *                          be used
      */
     private static function finished(Answer $answer, Request $request): Answer
     {
         $traceId = $request->traceId ?? $answer->traceId;
 
-        if ($answer->text === '' && $answer->toolCalls === [] && $answer->finishReason !== FinishReason::Length) {
+        $explained = match ($answer->finishReason) {
+            FinishReason::Length, FinishReason::Refusal, FinishReason::ContentFilter => true,
+            FinishReason::Stop, FinishReason::ToolCalls, FinishReason::Other => false,
+        };
+        if ($answer->text === '' && $answer->toolCalls === [] && ! $explained) {
             throw new GatewayException(ErrorReason::ProviderError, $traceId, null, null, null, $answer->attempts, 'the answer has no text and no tool call');
         }
 
@@ -469,6 +481,7 @@ final class FakeGateway implements Gateway
             $answer->latencyMs,
             $answer->attempts,
             $traceId,
+            $answer->opaque,
         );
     }
 

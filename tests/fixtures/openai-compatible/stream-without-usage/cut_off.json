@@ -1,0 +1,21 @@
+{
+    "id": "chatcmpl-example-1",
+    "object": "chat.completion",
+    "created": 1795000000,
+    "model": "example-model",
+    "choices": [
+        {
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "content": "{\"city\":\"Par"
+            },
+            "finish_reason": "length"
+        }
+    ],
+    "usage": {
+        "prompt_tokens": 3,
+        "completion_tokens": 2,
+        "total_tokens": 5
+    }
+}

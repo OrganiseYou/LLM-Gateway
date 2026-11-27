@@ -14,8 +14,10 @@ use OrganiseYou\LlmGateway\Contract\GatewayException;
 use OrganiseYou\LlmGateway\Contract\JsonSchema;
 use OrganiseYou\LlmGateway\Contract\Message;
 use OrganiseYou\LlmGateway\Contract\ModelInfo;
+use OrganiseYou\LlmGateway\Contract\OpaquePart;
 use OrganiseYou\LlmGateway\Contract\Request;
 use OrganiseYou\LlmGateway\Contract\ResponseFormat;
+use OrganiseYou\LlmGateway\Contract\Role;
 use OrganiseYou\LlmGateway\Contract\Stream\StreamEvent;
 use OrganiseYou\LlmGateway\Contract\Stream\StreamFailed;
 use OrganiseYou\LlmGateway\Contract\Stream\StreamFinished;
@@ -27,6 +29,7 @@ use OrganiseYou\LlmGateway\Contract\StructuredIssue;
 use OrganiseYou\LlmGateway\Contract\StructuredIssueKind;
 use OrganiseYou\LlmGateway\Contract\StructuredResult;
 use OrganiseYou\LlmGateway\Contract\Support;
+use OrganiseYou\LlmGateway\Contract\TextPart;
 use OrganiseYou\LlmGateway\Contract\ToolCall;
 use OrganiseYou\LlmGateway\Contract\ToolChoice;
 use OrganiseYou\LlmGateway\Contract\ToolDefinition;
@@ -56,9 +59,9 @@ function answerForTheFake(string $text = 'Hello.', FinishReason $finish = Finish
     return new Answer($text, $structured, array_values($calls), $finish, 'model-a-0001', new Usage(3, 2), 12, 2, 'scripted');
 }
 
-function capabilitiesForTheFake(Support $tools = Support::Native, Support $structured = Support::Native, Support $both = Support::Native, Support $forced = Support::Native, Support $models = Support::Native): Capabilities
+function capabilitiesForTheFake(Support $tools = Support::Native, Support $structured = Support::Native, Support $both = Support::Native, Support $forced = Support::Native, Support $models = Support::Native, Support $temperature = Support::Native): Capabilities
 {
-    return new Capabilities($tools, $forced, $tools, $structured, $both, Support::Native, $models, null);
+    return new Capabilities($tools, $forced, $tools, $structured, $both, Support::Native, $models, null, $temperature);
 }
 
 it('is a gateway, final and not readonly, with no state outside the object', function (): void {
@@ -421,4 +424,164 @@ it('returns the scripted connection report, with the trace id of the call when o
         ->and(fn() => $fake->check('', 10.0))->toThrow(InvalidArgumentException::class)
         ->and(fn() => $fake->check('model-a', NAN))->toThrow(InvalidArgumentException::class)
         ->and(fn() => $fake->check('model-a', 10.0, ''))->toThrow(InvalidArgumentException::class);
+});
+
+describe('an opaque part', function (): void {
+    it('is never made by the fake: a scripted text, tool call or plain answer has none', function (): void {
+        $call = ToolCall::decoded('call_1', 'lookup', ['q' => 'x'], '{"q":"x"}');
+        $gateway = (new FakeGateway())
+            ->willAnswerText('Hello.')
+            ->willCallTools($call)
+            ->willAnswer(new Answer('Hello.', null, [], FinishReason::Stop, 'model-a', new Usage(3, 2), 0, 1, 'scripted'));
+
+        expect($gateway->complete(requestOfTheFake())->opaque)->toBeNull()
+            ->and($gateway->complete(requestOfTheFake(tools: true))->opaque)->toBeNull()
+            ->and($gateway->complete(requestOfTheFake())->opaque)->toBeNull();
+    });
+
+    it('passes a scripted part on, through complete() and through a stream, also when the answer is built again', function (): void {
+        $call = ToolCall::decoded('call_1', 'lookup', ['q' => 'x'], '{"q":"x"}');
+        $part = new OpaquePart('data that goes back');
+        $scripted = new Answer('', null, [$call], FinishReason::ToolCalls, 'model-a', new Usage(3, 2), 0, 1, 'scripted', $part);
+
+        $gateway = (new FakeGateway())
+            ->willAnswer($scripted)
+            ->willAnswer($scripted)
+            ->willStream(new ToolCallStarted(0, 'call_1', 'lookup'), new ToolCallCompleted(0, $call), new StreamFinished($scripted))
+            ->willStream(new ToolCallStarted(0, 'call_1', 'lookup'), new ToolCallCompleted(0, $call), new StreamFinished($scripted));
+
+        // The trace id of the request replaces the scripted one, so the fake builds the answer again.
+        $whole = $gateway->complete(requestOfTheFake(traceId: 'trace-of-the-call', tools: true));
+        $events = iterator_to_array($gateway->stream(requestOfTheFake(traceId: 'trace-of-the-call', tools: true)), false);
+        $streamed = iterator_to_array($gateway->stream(requestOfTheFake(traceId: 'trace-of-the-call', tools: true)), false);
+        $fromAStream = $gateway->complete(requestOfTheFake(traceId: 'trace-of-the-call', tools: true));
+
+        $last = $events[count($events) - 1];
+        $lastStreamed = $streamed[count($streamed) - 1];
+        assert($last instanceof StreamFinished && $lastStreamed instanceof StreamFinished);
+
+        expect($whole->traceId)->toBe('trace-of-the-call')
+            ->and($whole->opaque)->toBe($part)
+            ->and($whole->toMessage()->parts)->toBe([$part])
+            ->and($last->answer->opaque)->toBe($part)
+            ->and($lastStreamed->answer->opaque)->toBe($part)
+            ->and($fromAStream->opaque)->toBe($part);
+    });
+
+    it('records the parts it is sent, so a test can assert that its loop carried the part into the next round', function (): void {
+        $call = ToolCall::decoded('call_1', 'lookup', ['q' => 'x'], '{"q":"x"}');
+        $part = new OpaquePart('data that goes back');
+        $gateway = (new FakeGateway())
+            ->willAnswer(new Answer('', null, [$call], FinishReason::ToolCalls, 'model-a', new Usage(3, 2), 0, 1, 'scripted', $part))
+            ->willAnswerText('Done.');
+
+        $request = requestOfTheFake(tools: true);
+        $first = $gateway->complete($request);
+        $final = $gateway->complete($request->withMessages([
+            ...$request->messages,
+            $first->toMessage(),
+            Message::toolResult('call_1', 'lookup', '{"found":true}'),
+        ]));
+
+        $sent = $gateway->requests()[1]->messages;
+
+        expect($final->text)->toBe('Done.')
+            ->and($sent[count($sent) - 2]->parts)->toBe([$part])
+            ->and($sent[count($sent) - 2]->toolCalls)->toBe([$call]);
+    });
+
+    it('records a part it did not script as it is: the fake judges no part', function (): void {
+        $foreign = new OpaquePart('{"f":"zz"}');
+        $gateway = (new FakeGateway())->willAnswerText('Done.');
+
+        $request = requestOfTheFake();
+        $gateway->complete($request->withMessages([...$request->messages, new Message(Role::Assistant, [$foreign, new TextPart('Hello.')]), Message::user('Again.')]));
+
+        $sent = $gateway->requests()[0]->messages;
+
+        expect($sent[count($sent) - 2]->parts[0])->toBe($foreign);
+    });
+});
+
+describe('an answer without text and without a tool call', function (): void {
+    it('is returned when its finish reason explains it, through complete() and through a stream', function (FinishReason $finish): void {
+        $empty = answerForTheFake('', $finish);
+        $fake = (new FakeGateway())->willAnswer($empty)->willAnswer($empty)->willStream(new StreamFinished($empty));
+
+        $answer = $fake->complete(requestOfTheFake());
+        $whole = Talk::events($fake->stream(requestOfTheFake()));
+        $streamed = Talk::events($fake->stream(requestOfTheFake()));
+
+        expect($answer->text)->toBe('')
+            ->and($answer->toolCalls)->toBe([])
+            ->and($answer->finishReason)->toBe($finish)
+            ->and($answer->traceId)->toBe('trace-1')
+            ->and(Talk::finishedIn($whole)->answer->finishReason)->toBe($finish)
+            ->and(Talk::finishedIn($streamed)->answer->finishReason)->toBe($finish)
+            ->and($fake->remaining())->toBe(0);
+    })->with([FinishReason::Length, FinishReason::Refusal, FinishReason::ContentFilter]);
+
+    it('is a provider error with every other finish reason, thrown by complete() and the last event of a stream', function (FinishReason $finish): void {
+        $empty = answerForTheFake('', $finish);
+        $fake = (new FakeGateway())->willAnswer($empty)->willAnswer($empty);
+
+        $error = Talk::errorOf(fn() => $fake->complete(requestOfTheFake()));
+        $events = Talk::events($fake->stream(requestOfTheFake()));
+
+        expect($error->reason)->toBe(ErrorReason::ProviderError)
+            ->and($error->detail)->toBe('the answer has no text and no tool call')
+            ->and($events)->toHaveCount(1)
+            ->and(Talk::failedIn($events)->error->reason)->toBe(ErrorReason::ProviderError);
+    })->with([FinishReason::Stop, FinishReason::ToolCalls, FinishReason::Other]);
+
+    it('keeps the text of a scripted refusal, and checks it against a response format as any text', function (): void {
+        $fake = (new FakeGateway())
+            ->willAnswer(answerForTheFake('I cannot help with that.', FinishReason::Refusal))
+            ->willAnswer(answerForTheFake('I cannot help with that.', FinishReason::Refusal));
+
+        $plain = $fake->complete(requestOfTheFake());
+        $formatted = $fake->complete(requestOfTheFake(formatForTheFake()));
+
+        expect($plain->text)->toBe('I cannot help with that.')
+            ->and($plain->finishReason)->toBe(FinishReason::Refusal)
+            ->and($formatted->structured?->isUsable())->toBeFalse()
+            ->and($formatted->structured?->issues[0]->kind)->toBe(StructuredIssueKind::NotJson);
+    });
+});
+
+describe('a temperature', function (): void {
+    function requestWithATemperature(float $temperature = 0.0): Request
+    {
+        return new Request('model-a', [Message::user('Say hello.')], 30.0, temperature: $temperature, traceId: 'trace-1');
+    }
+
+    it('is refused as not_supported for a model that takes none, and uses no scripted entry', function (float $temperature): void {
+        $fake = (new FakeGateway())->withCapabilities(capabilitiesForTheFake(temperature: Support::None))->willAnswerText('Hello.');
+
+        $error = Talk::errorOf(fn() => $fake->complete(requestWithATemperature($temperature)));
+        $events = Talk::events($fake->stream(requestWithATemperature($temperature)));
+
+        expect($error->reason)->toBe(ErrorReason::NotSupported)
+            ->and($error->detail)->toBe('this model takes no temperature')
+            ->and($error->attempts)->toBe(0)
+            ->and($error->httpStatus)->toBeNull()
+            ->and($error->traceId)->toBe('trace-1')
+            ->and($events)->toHaveCount(1)
+            ->and(Talk::failedIn($events)->error->reason)->toBe(ErrorReason::NotSupported)
+            ->and(Talk::failedIn($events)->error->detail)->toBe('this model takes no temperature')
+            ->and($fake->remaining())->toBe(1)
+            ->and($fake->requests())->toHaveCount(2);
+    })->with([[0.0], [0.7], [1.0]]);
+
+    it('is taken when the capabilities say so, when none were given, and a request without one is always answered', function (): void {
+        $native = (new FakeGateway())->withCapabilities(capabilitiesForTheFake())->willAnswerText('Hello.');
+        $untold = (new FakeGateway())->willAnswerText('Hello.');
+        $none = (new FakeGateway())->withCapabilities(capabilitiesForTheFake(temperature: Support::None))->willAnswerText('Hello.');
+
+        expect($native->complete(requestWithATemperature(0.7))->text)->toBe('Hello.')
+            ->and($untold->complete(requestWithATemperature(0.7))->text)->toBe('Hello.')
+            ->and($untold->capabilities('model-a')->temperature)->toBe(Support::Native)
+            ->and($none->complete(requestOfTheFake())->text)->toBe('Hello.')
+            ->and($none->capabilities('model-a')->temperature)->toBe(Support::None);
+    });
 });

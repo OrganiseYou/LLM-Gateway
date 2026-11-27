@@ -1,0 +1,12 @@
+event: say
+data: {"piece":"I cannot "}
+
+event: say
+data: {"piece":"help with that."}
+
+event: used
+data: {"in":3,"out":2}
+
+event: end
+data: {"end":"refused","by":"model-a-0001"}
+

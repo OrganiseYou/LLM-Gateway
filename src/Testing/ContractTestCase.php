@@ -13,9 +13,11 @@ use OrganiseYou\LlmGateway\Contract\FinishReason;
 use OrganiseYou\LlmGateway\Contract\GatewayException;
 use OrganiseYou\LlmGateway\Contract\JsonSchema;
 use OrganiseYou\LlmGateway\Contract\Message;
+use OrganiseYou\LlmGateway\Contract\OpaquePart;
 use OrganiseYou\LlmGateway\Contract\Request;
 use OrganiseYou\LlmGateway\Contract\ResponseFormat;
 use OrganiseYou\LlmGateway\Contract\RetryPolicy;
+use OrganiseYou\LlmGateway\Contract\Role;
 use OrganiseYou\LlmGateway\Contract\Stream\StreamEvent;
 use OrganiseYou\LlmGateway\Contract\Stream\StreamFailed;
 use OrganiseYou\LlmGateway\Contract\Stream\StreamFinished;
@@ -25,6 +27,7 @@ use OrganiseYou\LlmGateway\Contract\Stream\ToolCallStarted;
 use OrganiseYou\LlmGateway\Contract\Stream\UsageReported;
 use OrganiseYou\LlmGateway\Contract\StructuredIssueKind;
 use OrganiseYou\LlmGateway\Contract\Support;
+use OrganiseYou\LlmGateway\Contract\TextPart;
 use OrganiseYou\LlmGateway\Contract\ToolChoice;
 use OrganiseYou\LlmGateway\Contract\ToolDefinition;
 use OrganiseYou\LlmGateway\Contract\Usage;
@@ -57,13 +60,16 @@ use PHPUnit\Framework\TestCase;
  * do fails. A server with other capabilities is another test class with another preset.
  *
  * Expect skipped tests, each with its reason: that is the set saying what it did not check, not a fault. A gateway
- * that can do everything and streams natively skips six: the five tests of a refusal (tools, a forced tool call, a
- * response format, tools with a response format, the model list), because there is nothing to refuse, and the
- * test of the stream of a gateway without streaming. A gateway that lacks a capability skips the scenarios that
- * need it instead, and its refusal test runs. Three more can be skipped by what the fixtures declare as not
- * applicable (an error inside a successful response, a request the format cannot carry) or by PHP leaving the
- * arguments out of traces. A project that fails its run on a skipped test should exclude none of them: it will see
- * these skips, and should allow them for the classes that extend this one.
+ * that can do everything and streams natively skips seven: the six tests of a refusal (tools, a forced tool call, a
+ * response format, tools with a response format, a temperature, the model list), because there is nothing to
+ * refuse, and the test of the stream of a gateway without streaming. A gateway that lacks a capability skips the
+ * scenarios that need it instead, and its refusal test runs. More can be skipped by what the fixtures declare as
+ * not applicable (an error inside a successful response, a request the format cannot carry, a response that
+ * forbids a retry, the five tests of an answer with opaque data for a format that has no such data, and the two
+ * tests each of a refusal and of a withheld answer for a format that does not tell them) or by PHP leaving the
+ * arguments out of traces. A project that
+ * fails its run on a skipped test should exclude none of them: it will see these skips, and should allow them for
+ * the classes that extend this one.
  *
  * What the fixtures must hold is said on ContractFixture and AdapterFixtures. Two things are easy to miss: every
  * fixture reports 3 input and 2 output tokens, and the first chunk of the stream of the plain answer gives its
@@ -123,6 +129,18 @@ abstract class ContractTestCase extends TestCase
         return true;
     }
 
+    /**
+     * Whether the gateway keeps data of its format with every answer that holds a tool call, also when the answer
+     * is the plain one of ContractFixture::ToolCall. Only the test of an adapter whose format puts something on a
+     * tool call that has no neutral form says true (whether the server itself gave the call an id, for example).
+     * The set then allows an opaque part on an answer with tool calls, and searches it for the key; an answer
+     * without a tool call must still have none.
+     */
+    protected function keepsDataWithEveryToolCall(): bool
+    {
+        return false;
+    }
+
     // ---------------------------------------------------------------------------------------------------------
     // The answer (design section 4, LR-07).
     // ---------------------------------------------------------------------------------------------------------
@@ -178,6 +196,16 @@ abstract class ContractTestCase extends TestCase
         $this->assertAnswered(ContractFixture::ToolCallBesideResponseFormat, false);
     }
 
+    public function testAnAnswerTheModelDeclinedToGiveIsAnAnswerWithItsOwnFinishReason(): void
+    {
+        $this->assertAnswered(ContractFixture::Refused, false);
+    }
+
+    public function testAnAnswerTheProviderWithheldIsAnAnswerWithoutTextNotAnError(): void
+    {
+        $this->assertAnswered(ContractFixture::Withheld, false);
+    }
+
     public function testAnAnswerWithoutTextAndWithoutAToolCallIsAProviderError(): void
     {
         $subject = $this->subject(new RetryPolicy([1.0], 60.0));
@@ -210,6 +238,118 @@ abstract class ContractTestCase extends TestCase
 
         self::assertSame(ErrorReason::Rejected, $error->reason);
         self::assertSame(self::TRACE_ID, $error->traceId, 'an error of the structured check carries the trace id of the call');
+    }
+
+    // ---------------------------------------------------------------------------------------------------------
+    // Data that came with an answer and goes back with it: the opaque part.
+    // ---------------------------------------------------------------------------------------------------------
+
+    public function testAToolCallWithOpaqueData(): void
+    {
+        $this->assertAnswered(ContractFixture::ToolCallWithOpaqueData, false);
+    }
+
+    public function testAStreamOfAToolCallWithOpaqueData(): void
+    {
+        $this->assertAnswered(ContractFixture::ToolCallWithOpaqueData, true);
+    }
+
+    public function testOpaqueDataGoesBackWithTheMessageItCameWith(): void
+    {
+        foreach ([false, true] as $asStream) {
+            $subject = $this->subject(RetryPolicy::none());
+            $how = $asStream ? 'after a stream' : 'after complete()';
+
+            $message = $this->answerWithOpaqueData($subject, $asStream)->toMessage();
+            self::assertFalse($subject->sentToTheProvider(ContractFixture::OPAQUE_MARKER), $how . ': the data arrives with the answer, it is not in the request before it');
+
+            $subject->gives(ContractFixture::PlainAnswer, false);
+            $answer = $this->answerOf($subject, self::nextRound($subject, $message));
+
+            self::assertSame('Hello.', $answer->text, $how);
+            self::assertSame(2, $subject->requestsReceived(), $how . ': the second round is one request');
+            self::assertTrue(
+                $subject->sentToTheProvider(ContractFixture::OPAQUE_MARKER),
+                $how . ': the message of Answer::toMessage() must take the opaque data of its answer into the next request',
+            );
+        }
+    }
+
+    public function testOpaqueDataIsNotSentWithAMessageThatWasChanged(): void
+    {
+        $subject = $this->subject(RetryPolicy::none());
+        $this->skipWithoutAProviderForOpaqueData($subject);
+
+        $message = $this->answerWithOpaqueData($subject, false)->toMessage();
+        $parts = [];
+        foreach ($message->parts as $part) {
+            if ($part instanceof OpaquePart) {
+                $parts[] = $part;
+            }
+        }
+        $parts[] = new TextPart($message->text() . 'Changed.');
+        $changed = new Message(Role::Assistant, $parts, $message->toolCalls);
+
+        $subject->gives(ContractFixture::PlainAnswer, false);
+        $answer = $this->answerOf($subject, self::nextRound($subject, $changed));
+
+        self::assertSame('Hello.', $answer->text, 'a message that was changed is still sent: the request is not refused');
+        self::assertSame(2, $subject->requestsReceived());
+        self::assertTrue($subject->sentToTheProvider('Changed.'), 'the changed message is sent as it is now, built from its text and its tool calls');
+        self::assertFalse(
+            $subject->sentToTheProvider(ContractFixture::OPAQUE_MARKER),
+            'opaque data belongs to the message it came with: when the text of that message was changed, nothing of the data is sent',
+        );
+    }
+
+    public function testOpaqueDataThatIsNotTheGatewaysOwnIsNotSent(): void
+    {
+        $foreign = 'opaque-foreign';
+        $made = [
+            'an object of another gateway' => '{"f":"zz"}',
+            'an object of another gateway with content' => '{"f":"zz","m":"' . $foreign . '","c":["' . $foreign . '"]}',
+            'plain text that is no JSON' => $foreign . ', and this is no JSON',
+        ];
+
+        foreach ($made as $what => $data) {
+            $subject = $this->subject(RetryPolicy::none());
+            $this->skipWithoutAProviderForOpaqueData($subject);
+
+            $subject->gives(ContractFixture::PlainAnswer, false);
+            $request = self::request($subject, ContractFixture::PlainAnswer);
+            $answer = $this->answerOf($subject, $request->withMessages([
+                ...$request->messages,
+                new Message(Role::Assistant, [new OpaquePart($data), new TextPart('Hello.')]),
+                Message::user('Say it again.'),
+            ]));
+
+            self::assertSame('Hello.', $answer->text, $what . ': the request is sent, without the part');
+            self::assertSame(1, $subject->requestsReceived(), $what);
+            self::assertFalse($subject->sentToTheProvider($foreign), $what . ': an opaque part the gateway did not make is never sent to the provider');
+            self::assertFalse($subject->sentToTheProvider('"zz"'), $what . ': an opaque part the gateway did not make is never sent to the provider');
+        }
+    }
+
+    public function testOpaqueDataIsInNoErrorAndInNoEventOfTheNextRound(): void
+    {
+        $subject = $this->subject(RetryPolicy::none());
+        $message = $this->answerWithOpaqueData($subject, false)->toMessage();
+
+        $subject->fails(ContractFailure::Status400);
+        $error = $this->errorOf($subject, self::nextRound($subject, $message));
+
+        $this->assertNoOpaqueDataIn(OutputForms::ofException($error), 'the error of a round that sent opaque data');
+        $this->assertNoOpaqueDataIn(OutputForms::ofValue($error), 'the error of a round that sent opaque data, as a value');
+
+        $streamed = $this->subject(RetryPolicy::none());
+        $message = $this->answerWithOpaqueData($streamed, false)->toMessage();
+        $streamed->fails(ContractFailure::Status400, null, true);
+        foreach ($this->eventsOf($streamed, self::nextRound($streamed, $message)) as $at => $event) {
+            $this->assertNoOpaqueDataIn(OutputForms::ofValue($event), 'event ' . $at . ' of a stream that sent opaque data and failed');
+            if ($event instanceof StreamFailed) {
+                $this->assertNoOpaqueDataIn(OutputForms::ofException($event->error), 'the error in the failed event of a stream that sent opaque data');
+            }
+        }
     }
 
     // ---------------------------------------------------------------------------------------------------------
@@ -254,6 +394,16 @@ abstract class ContractTestCase extends TestCase
     public function testAStreamOfAToolCallBesideAResponseFormat(): void
     {
         $this->assertAnswered(ContractFixture::ToolCallBesideResponseFormat, true);
+    }
+
+    public function testAStreamOfAnAnswerTheModelDeclinedToGive(): void
+    {
+        $this->assertAnswered(ContractFixture::Refused, true);
+    }
+
+    public function testAStreamOfAnAnswerTheProviderWithheldEndsWithAnAnswer(): void
+    {
+        $this->assertAnswered(ContractFixture::Withheld, true);
     }
 
     public function testNothingIsSentBeforeAStreamIsRead(): void
@@ -424,6 +574,30 @@ abstract class ContractTestCase extends TestCase
         }
 
         $this->assertRefused($subject, self::request($subject, ContractFixture::ToolCallBesideResponseFormat));
+    }
+
+    public function testATemperatureIsRefusedWhenTheModelTakesNone(): void
+    {
+        $subject = $this->subject(RetryPolicy::none());
+        if (self::can($subject)->temperature !== Support::None) {
+            self::markTestSkipped('The gateway says this model takes a temperature: there is nothing to refuse.');
+        }
+
+        $plain = self::request($subject, ContractFixture::PlainAnswer);
+        $withTemperature = new Request(
+            $plain->model,
+            $plain->messages,
+            $plain->timeoutSeconds,
+            temperature: 0.0,
+            traceId: $plain->traceId,
+        );
+
+        // Also a temperature of 0.0 is one: the value is refused, never dropped.
+        $this->assertRefused($subject, $withTemperature);
+
+        // The same request without a temperature is answered: the refusal is about the temperature alone.
+        $subject->gives(ContractFixture::PlainAnswer, false);
+        self::assertSame('Hello.', $this->answerOf($subject, $plain)->text);
     }
 
     public function testTheModelListIsRefusedWhenTheModelsCannotBeListed(): void
@@ -602,6 +776,34 @@ abstract class ContractTestCase extends TestCase
             self::assertSame(1, $error->attempts, $failure->value . ' is not tried again');
             self::assertSame(1, $subject->requestsReceived(), $failure->value . ' is not tried again');
             self::assertSame([], $subject->waits(), $failure->value);
+        }
+    }
+
+    public function testAResponseThatForbidsARetryIsNotTriedAgain(): void
+    {
+        $this->skipWithoutAttempts();
+
+        foreach ([false, true] as $asStream) {
+            $subject = $this->subject(new RetryPolicy([1.0], 60.0));
+            $how = $asStream ? 'through stream()' : 'through complete()';
+            $why = $subject->cannotPlay(ContractFailure::RetryForbidden, $asStream);
+            if ($why !== null) {
+                self::markTestSkipped('The fixtures say a response that forbids a retry does not apply: ' . $why);
+            }
+
+            // The response asks for a wait too. The answer after it is scripted and never used.
+            $subject->fails(ContractFailure::RetryForbidden, 7, $asStream);
+            $subject->gives(ContractFixture::PlainAnswer, $asStream);
+            $request = self::request($subject, ContractFixture::PlainAnswer);
+
+            $error = $asStream ? $this->failedIn($this->eventsOf($subject, $request))->error : $this->errorOf($subject, $request);
+
+            self::assertSame(ErrorReason::Unavailable, $error->reason, $how . ': a response that forbids a retry keeps the reason of its status');
+            self::assertSame(503, $error->httpStatus, $how);
+            self::assertSame(1, $error->attempts, $how . ': a response that says it must not be tried again is not tried again');
+            self::assertSame(1, $subject->requestsReceived(), $how . ': no second request');
+            self::assertSame([], $subject->waits(), $how . ': nothing is waited for');
+            self::assertNull($error->retryAfterSeconds, $how . ': an error that must not be tried again tells no wait');
         }
     }
 
@@ -812,11 +1014,12 @@ abstract class ContractTestCase extends TestCase
     private function assertAnswered(ContractFixture $fixture, bool $asStream): void
     {
         $subject = $this->subject(RetryPolicy::none());
-        $this->skipWhatTheGatewayCannotDo($subject, $fixture);
+        $this->skipWhatTheGatewayCannotDo($subject, $fixture, $asStream);
 
         $subject->gives($fixture, $asStream);
         $request = self::request($subject, $fixture);
         $what = $fixture->value;
+        $events = [];
 
         // Design section 4.2: the tokens the provider reported, or none where it reports none.
         $usage = $this->reportsUsage($asStream && self::can($subject)->streaming === Support::Native)
@@ -867,6 +1070,17 @@ abstract class ContractTestCase extends TestCase
         self::assertCount(count($expected), $ids, $what . ': every tool call has its own id');
         if ($expected !== []) {
             self::assertCount(count($expected), $answer->toMessage()->toolCalls, $what . ': the answer can go back as the assistant message of the next round');
+        }
+
+        // Data that must go back unchanged is the opaque part of the answer, and nothing else of the answer holds it.
+        if ($fixture === ContractFixture::ToolCallWithOpaqueData) {
+            $this->assertOpaqueDataIsBesideTheAnswer($answer, $events, $what);
+        } elseif ($expected !== [] && $this->keepsDataWithEveryToolCall()) {
+            if ($answer->opaque !== null) {
+                $this->assertNoKeyIn(['the data of the opaque part' => $answer->opaque->data], $what . ': the opaque part');
+            }
+        } else {
+            self::assertNull($answer->opaque, $what . ': an answer of plain text and tool calls has no opaque part');
         }
 
         // Design sections 4.3 and 10, with the rule that an answer with tool calls has no structured result.
@@ -943,6 +1157,96 @@ abstract class ContractTestCase extends TestCase
     }
 
     /**
+     * The opaque part is set, Answer::toMessage() holds it once and unchanged, and neither the text, the tool calls,
+     * an event before the last nor the key is where it should not be.
+     *
+     * @param list<StreamEvent> $events the events the answer arrived in; empty for complete()
+     */
+    private function assertOpaqueDataIsBesideTheAnswer(Answer $answer, array $events, string $what): void
+    {
+        $marker = ContractFixture::OPAQUE_MARKER;
+
+        self::assertStringNotContainsStringIgnoringCase($marker, $answer->text, $what . ': the opaque data is not in the text of the answer');
+        foreach ($answer->toolCalls as $toolCall) {
+            self::assertStringNotContainsStringIgnoringCase(
+                $marker,
+                $toolCall->id . "\n" . $toolCall->name . "\n" . $toolCall->rawArguments . "\n" . json_encode($toolCall->arguments, JSON_PARTIAL_OUTPUT_ON_ERROR),
+                $what . ': the opaque data is not in a tool call of the answer',
+            );
+        }
+        foreach (array_slice($events, 0, -1) as $at => $event) {
+            $this->assertNoOpaqueDataIn(OutputForms::ofValue($event), $what . ': event ' . $at . ' of the stream');
+        }
+
+        $opaque = $answer->opaque;
+        self::assertNotNull($opaque, $what . ': data that must go back unchanged is the opaque part of the answer');
+
+        $carried = [];
+        foreach ($answer->toMessage()->parts as $part) {
+            if ($part instanceof OpaquePart) {
+                $carried[] = $part->data;
+            }
+        }
+        self::assertSame([$opaque->data], $carried, $what . ': Answer::toMessage() holds the opaque part of the answer, once and unchanged');
+        self::assertSame($answer->text, $answer->toMessage()->text(), $what . ': the opaque part is no text of the message');
+
+        // The provider repeated the key in the headers of this response, and in a stream in a comment line.
+        $this->assertNoKeyIn(['the data of the opaque part' => $opaque->data], $what . ': the opaque part');
+        $this->assertNoKeyIn(OutputForms::ofValue($answer), $what . ': the answer');
+        $this->assertNoKeyIn(OutputForms::ofValue($answer->toMessage()), $what . ': the message of the answer');
+    }
+
+    /**
+     * @param array<string, string> $forms
+     */
+    private function assertNoOpaqueDataIn(array $forms, string $what): void
+    {
+        self::assertNotSame([], $forms);
+        self::assertSame([], OutputForms::holding($forms, ContractFixture::OPAQUE_MARKER), $what . ' shows opaque data: it belongs in the opaque part of an answer and nowhere else');
+    }
+
+    /**
+     * The answer of the gateway to the fixture with opaque data, which must hold an opaque part. Skipped, with the
+     * reason, when the gateway cannot call tools or its fixtures say the format has no such data.
+     */
+    private function answerWithOpaqueData(ContractSubject $subject, bool $asStream): Answer
+    {
+        $fixture = ContractFixture::ToolCallWithOpaqueData;
+        $this->skipWhatTheGatewayCannotDo($subject, $fixture, $asStream);
+
+        $subject->gives($fixture, $asStream);
+        $request = self::request($subject, $fixture);
+        $answer = $asStream ? $this->finishedIn($this->eventsOf($subject, $request))->answer : $this->answerOf($subject, $request);
+
+        self::assertNotNull($answer->opaque, 'data that must go back unchanged is the opaque part of the answer');
+        self::assertNotSame([], $answer->toolCalls);
+
+        return $answer;
+    }
+
+    /**
+     * The request of the round after an answer with a tool call: the request of the set, the assistant message and
+     * the result of its tool calls.
+     */
+    private static function nextRound(ContractSubject $subject, Message $assistant): Request
+    {
+        $request = self::request($subject, ContractFixture::ToolCallWithOpaqueData);
+        $messages = [...$request->messages, $assistant];
+        foreach ($assistant->toolCalls as $toolCall) {
+            $messages[] = Message::toolResult($toolCall->id, $toolCall->name, '{"degrees":18}');
+        }
+
+        return $request->withMessages($messages);
+    }
+
+    private function skipWithoutAProviderForOpaqueData(ContractSubject $subject): void
+    {
+        if (! $subject->makesAttempts()) {
+            self::markTestSkipped('The gateway makes no HTTP attempts: it has no provider to hold an opaque part back from, and records every part it is sent.');
+        }
+    }
+
+    /**
      * The provider repeated the key of the set as its own code: an error may not show it, in any case of letters.
      */
     private function assertCodeIsNotTheKey(GatewayException $error, string $what): void
@@ -1016,7 +1320,7 @@ abstract class ContractTestCase extends TestCase
         }
     }
 
-    private function skipWhatTheGatewayCannotDo(ContractSubject $subject, ContractFixture $fixture): void
+    private function skipWhatTheGatewayCannotDo(ContractSubject $subject, ContractFixture $fixture, bool $asStream = false): void
     {
         $can = self::can($subject);
 
@@ -1031,6 +1335,11 @@ abstract class ContractTestCase extends TestCase
         }
         if ($fixture->needsTools() && $fixture->needsResponseFormat() && $can->toolsWithStructuredOutput === Support::None) {
             self::markTestSkipped('The gateway says this model cannot take tools and a response format together. That it refuses them is checked by another test.');
+        }
+
+        $why = $subject->cannotGive($fixture, $asStream);
+        if ($why !== null) {
+            self::markTestSkipped('The fixtures say ' . $fixture->inWords() . ' does not apply: ' . $why);
         }
     }
 

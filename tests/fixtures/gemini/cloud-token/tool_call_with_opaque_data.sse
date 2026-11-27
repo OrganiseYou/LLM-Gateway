@@ -1,0 +1,6 @@
+data: {"candidates":[{"index":0,"content":{"role":"model","parts":[{"text":"One city, so the lookup tool: ","thought":true}]}}],"usageMetadata":{"promptTokenCount":3,"candidatesTokenCount":1,"totalTokenCount":4,"trafficType":"EXAMPLE"},"modelVersion":"example-generate-1","createTime":"2026-01-01T00:00:00Z","responseId":"resp-example01"}
+
+data: {"candidates":[{"index":0,"content":{"role":"model","parts":[{"text":"opaque-tracer.","thought":true}]}}],"usageMetadata":{"promptTokenCount":3,"candidatesTokenCount":1,"totalTokenCount":4,"trafficType":"EXAMPLE"},"modelVersion":"example-generate-1","createTime":"2026-01-01T00:00:00Z","responseId":"resp-example01"}
+
+data: {"candidates":[{"index":0,"content":{"role":"model","parts":[{"functionCall":{"name":"lookup","args":{"city":"Paris"}},"thoughtSignature":"c2lnLWV4YW1wbGU="}]},"finishReason":"FINISH_REASON_STOP"}],"usageMetadata":{"promptTokenCount":3,"candidatesTokenCount":2,"totalTokenCount":5,"trafficType":"EXAMPLE"},"modelVersion":"example-generate-1","createTime":"2026-01-01T00:00:00Z","responseId":"resp-example01"}
+

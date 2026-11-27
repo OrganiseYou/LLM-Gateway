@@ -41,6 +41,18 @@ final readonly class TalkFixtures implements AdapterFixtures
         return new HttpResponse($status, ['Content-Type' => 'application/json'], str_replace('{{echo}}', $echo, self::read('failed.json')));
     }
 
+    public function retryForbidden(HttpResponse $failed): HttpResponse
+    {
+        // The sign of this format: "again": false in the fault of the error body.
+        $body = json_decode($failed->body, true);
+        if (! is_array($body) || ! is_array($body['fault'] ?? null)) {
+            throw new RuntimeException('The fixture of a failed request holds no fault.');
+        }
+        $body['fault']['again'] = false;
+
+        return new HttpResponse($failed->status, $failed->headers, Talk::json($body));
+    }
+
     public function errorInBody(string $echo): HttpResponse
     {
         return new HttpResponse(200, ['Content-Type' => 'application/json'], str_replace('{{echo}}', $echo, self::read('error_in_body.json')));
@@ -74,6 +86,9 @@ final readonly class TalkFixtures implements AdapterFixtures
             ContractFixture::StructuredInvalid => 'structured_invalid',
             ContractFixture::CutOff => 'cut_off',
             ContractFixture::EmptyAnswer => 'empty_answer',
+            ContractFixture::ToolCallWithOpaqueData => 'tool_call_with_opaque_data',
+            ContractFixture::Refused => 'refused',
+            ContractFixture::Withheld => 'withheld',
         };
     }
 

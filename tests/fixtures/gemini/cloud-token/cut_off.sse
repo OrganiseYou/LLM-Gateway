@@ -1,0 +1,4 @@
+data: {"candidates":[{"index":0,"content":{"role":"model","parts":[{"text":"{\"city\":"}]}}],"usageMetadata":{"promptTokenCount":3,"candidatesTokenCount":1,"totalTokenCount":4,"trafficType":"EXAMPLE"},"modelVersion":"example-generate-1","createTime":"2026-01-01T00:00:00Z","responseId":"resp-example01"}
+
+data: {"candidates":[{"index":0,"content":{"role":"model","parts":[{"text":"\"Par"}]},"finishReason":"FINISH_REASON_MAX_TOKENS"}],"usageMetadata":{"promptTokenCount":3,"candidatesTokenCount":2,"totalTokenCount":5,"trafficType":"EXAMPLE"},"modelVersion":"example-generate-1","createTime":"2026-01-01T00:00:00Z","responseId":"resp-example01"}
+

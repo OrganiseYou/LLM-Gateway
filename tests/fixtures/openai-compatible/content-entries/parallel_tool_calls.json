@@ -1,0 +1,45 @@
+{
+    "id": "cmpl-example-0003",
+    "object": "chat.completion",
+    "created": 1795000000,
+    "model": "example-large-1",
+    "choices": [
+        {
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "AbCdEf123",
+                        "type": "function",
+                        "index": 0,
+                        "function": {
+                            "name": "lookup",
+                            "arguments": {
+                                "city": "Paris"
+                            }
+                        }
+                    },
+                    {
+                        "id": "GhIjKl456",
+                        "type": "function",
+                        "index": 1,
+                        "function": {
+                            "name": "lookup",
+                            "arguments": {
+                                "city": "Rome"
+                            }
+                        }
+                    }
+                ]
+            },
+            "finish_reason": "tool_calls"
+        }
+    ],
+    "usage": {
+        "prompt_tokens": 3,
+        "completion_tokens": 2,
+        "total_tokens": 5
+    }
+}

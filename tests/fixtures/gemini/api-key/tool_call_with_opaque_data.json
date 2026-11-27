@@ -1,0 +1,20 @@
+{
+  "candidates": [
+    {
+      "index": 0,
+      "content": {
+        "role": "model",
+        "parts": [
+          {
+            "functionCall": {"id": "fc-example01", "name": "lookup", "args": {"city": "Paris"}},
+            "thoughtSignature": "opaque-tracer-c2lnLWV4YW1wbGU="
+          }
+        ]
+      },
+      "finishReason": "STOP"
+    }
+  ],
+  "usageMetadata": {"promptTokenCount": 3, "candidatesTokenCount": 1, "thoughtsTokenCount": 1, "totalTokenCount": 5},
+  "modelVersion": "example-generate-1",
+  "responseId": "resp-example01"
+}

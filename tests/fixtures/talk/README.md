@@ -8,5 +8,9 @@ names and text are made up. `{{echo}}` in `failed.json` is replaced by the text 
 
 - `<case>.json`: the whole response for one case of `Testing\ContractFixture`.
 - `<case>.sse`: the same answer as a stream; one event per chunk.
+- `tool_call_with_opaque_data.*`: a tool call with an `aside` beside it, the data this format wants back unchanged
+  in the next request. It holds the words `opaque-tracer`.
+- `refused.*`: the model declined to answer, and says so (`"end": "refused"`). `withheld.*`: the server withheld
+  the output, so there is no text (`"end": "blocked"`). Both are answers, not errors.
 - `failed.json`: the error body of a failed request; `error_in_body.json` and `error_in_stream.sse`: an error inside
   a response with the status 200.

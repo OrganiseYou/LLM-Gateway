@@ -26,6 +26,7 @@ use OrganiseYou\LlmGateway\Tests\Support\ReadmeSample;
 use OrganiseYou\LlmGateway\Tests\Support\ReadmeSamples;
 use OrganiseYou\LlmGateway\Tests\Support\RecordingPsr18Client;
 use OrganiseYou\LlmGateway\Tests\Support\SourceCode;
+use OrganiseYou\LlmGateway\Transport\HttpResponse;
 use PHPUnit\Framework\SkippedTest;
 
 // The README is part of the library: a sample that is marked as running must run against the code in src today,
@@ -201,16 +202,24 @@ describe('what the samples of the README declare', function (): void {
         // The one skip that depends on a setting of PHP, which the README names apart.
         $forTheSetting = array_filter($skipped, fn(string $why): bool => str_contains($why, 'zend.exception_ignore_args'));
         $ofTheExample = count($skipped) - count($forTheSetting);
+        // The example says of two things that its format does not have them: data that must go back unchanged, and a
+        // response that forbids a retry.
         $ofTheFixtures = count(array_filter($skipped, fn(string $why): bool => str_starts_with($why, 'The fixtures say')));
+        $forOpaqueData = count(array_filter($skipped, fn(string $why): bool => str_starts_with($why, 'The fixtures say an answer with opaque data does not apply')));
+        $forNoRetry = count(array_filter($skipped, fn(string $why): bool => str_starts_with($why, 'The fixtures say a response that forbids a retry does not apply')));
 
         $prose = ReadmeSamples::prose();
         expect(preg_match('/streams natively skips (\w+):/', $prose, $everything))->toBe(1, 'the README must say how many tests a gateway that can do everything skips')
-            ->and(preg_match('/The example above has a fixture for both, so it skips only those (\w+)\./', $prose, $example))->toBe(1, 'the README must say how many tests its example skips');
+            ->and(preg_match('/it skips\s+those (\w+), the (\w+) tests of an answer with opaque data and the (\w+) test of a response that forbids a retry\./', $prose, $example))->toBe(1, 'the README must say how many tests its example skips');
 
         expect($tests)->toBeGreaterThan(40)
-            ->and($ofTheFixtures)->toBe(0)
-            ->and(numberOfWord($everything[1] ?? ''))->toBe($ofTheExample)
-            ->and(numberOfWord($example[1] ?? ''))->toBe($ofTheExample);
+            ->and($forOpaqueData)->toBeGreaterThan(0)
+            ->and($forNoRetry)->toBeGreaterThan(0)
+            ->and($ofTheFixtures)->toBe($forOpaqueData + $forNoRetry)
+            ->and(numberOfWord($everything[1] ?? ''))->toBe($ofTheExample - $ofTheFixtures)
+            ->and(numberOfWord($example[1] ?? ''))->toBe($ofTheExample - $ofTheFixtures)
+            ->and(numberOfWord($example[2] ?? ''))->toBe($forOpaqueData)
+            ->and(numberOfWord($example[3] ?? ''))->toBe($forNoRetry);
     });
 
     it('marks as sensitive every parameter of the example adapter that takes a response or a piece of one', function (): void {
@@ -239,6 +248,49 @@ describe('what the samples of the README declare', function (): void {
 
         expect($checked)->toBeGreaterThan(10, 'the test must have found the parameters')
             ->and($unmarked)->toBe([]);
+    });
+
+    it('reads the model listing option of a preset one way in the example adapter: for the capabilities and for the model list', function (): void {
+        $examplePreset = ReadmeSamples::declared('examplePreset');
+        assert(is_callable($examplePreset));
+        $preset = $examplePreset();
+        assert($preset instanceof Preset);
+
+        $gatewayWith = fn(array $options, FakeTransport $transport): Gateway => GatewayFactory::create(
+            $preset->withAdapterOptions($options),
+            new BearerKey('test-key-not-a-real-one'),
+            $transport,
+            new GatewayConfig(RetryPolicy::none()),
+        );
+        $errorOf = function (callable $call): ?GatewayException {
+            try {
+                $call();
+            } catch (GatewayException $error) {
+                return $error;
+            }
+
+            return null;
+        };
+
+        // A value outside the list: neither the capabilities nor the model list, and nothing is sent.
+        $transport = new FakeTransport();
+        $wrong = $gatewayWith(['model_listing' => 'value-of-no-list'], $transport);
+        expect($errorOf(fn() => $wrong->capabilities('example-model'))?->reason)->toBe(ErrorReason::NotConfigured)
+            ->and($errorOf(fn() => $wrong->models(10.0))?->reason)->toBe(ErrorReason::NotConfigured)
+            ->and($errorOf(fn() => $wrong->models(10.0))?->detail)->toBe($errorOf(fn() => $wrong->capabilities('example-model'))?->detail)
+            ->and($transport->requests())->toBe([]);
+
+        // None: the capability says so, and the list is refused without a request.
+        $none = $gatewayWith(['model_listing' => 'none'], $transport);
+        expect($none->capabilities('example-model')->modelListing->value)->toBe('none')
+            ->and($errorOf(fn() => $none->models(10.0))?->reason)->toBe(ErrorReason::NotSupported)
+            ->and($transport->requests())->toBe([]);
+
+        // Native, or not set: the list is asked.
+        $transport->willReturn(new HttpResponse(200, [], '{"items":[]}'))->willReturn(new HttpResponse(200, [], '{"items":[]}'));
+        expect($gatewayWith(['model_listing' => 'native'], $transport)->models(10.0))->toBe([])
+            ->and($gatewayWith([], $transport)->models(10.0))->toBe([])
+            ->and($transport->requests())->toHaveCount(2);
     });
 
     it('keeps the rules of a stream in the example adapter, whatever the server sends', function (): void {

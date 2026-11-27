@@ -1,0 +1,7 @@
+{
+    "id": null,
+    "code": "{{status}}",
+    "error": "{{echo}}",
+    "detail": "The value {{echo}} was not accepted.",
+    "doc_url": "https://docs.example.test/errors"
+}

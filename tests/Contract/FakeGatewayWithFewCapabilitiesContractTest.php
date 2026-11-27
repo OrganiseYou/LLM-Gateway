@@ -12,8 +12,8 @@ use OrganiseYou\LlmGateway\Testing\ContractTestCase;
 use OrganiseYou\LlmGateway\Testing\FakeGatewaySubject;
 
 /**
- * The fake gateway, told that its model has no tools, no structured answers, no streaming of its own and no model
- * list, passes the shared test set too: it refuses what a real gateway would refuse.
+ * The fake gateway, told that its model has no tools, no structured answers, no streaming of its own, no model
+ * list and takes no temperature, passes the shared test set too: it refuses what a real gateway would refuse.
  */
 final class FakeGatewayWithFewCapabilitiesContractTest extends ContractTestCase
 {
@@ -28,6 +28,7 @@ final class FakeGatewayWithFewCapabilitiesContractTest extends ContractTestCase
             streaming: Support::Emulated,
             modelListing: Support::None,
             contextLength: null,
+            temperature: Support::None,
         ));
     }
 }

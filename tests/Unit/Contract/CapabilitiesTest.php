@@ -61,7 +61,7 @@ describe('Capabilities', function (): void {
             ->and($capabilities->contextLength)->toBe(128000);
     });
 
-    it('has exactly the eight fields of the capability list', function (): void {
+    it('has exactly the nine fields of the capability list', function (): void {
         $names = array_map(
             fn(ReflectionProperty $property): string => $property->getName(),
             (new ReflectionClass(Capabilities::class))->getProperties(),
@@ -76,7 +76,36 @@ describe('Capabilities', function (): void {
             'streaming',
             'modelListing',
             'contextLength',
+            'temperature',
         ]);
+    });
+
+    it('takes a temperature unless it is told otherwise: the ninth argument has a default', function (): void {
+        $positional = new Capabilities(Support::Native, Support::Native, Support::Native, Support::Native, Support::Native, Support::Native, Support::Native, null);
+        $parameter = (new ReflectionMethod(Capabilities::class, '__construct'))->getParameters()[8];
+
+        expect($positional->temperature)->toBe(Support::Native)
+            ->and(makeCapabilities()->temperature)->toBe(Support::Native)
+            ->and($parameter->getName())->toBe('temperature')
+            ->and($parameter->isDefaultValueAvailable())->toBeTrue()
+            ->and($parameter->getDefaultValue())->toBe(Support::Native);
+    });
+
+    it('accepts temperature as native or none', function (Support $temperature): void {
+        expect(makeCapabilities(['temperature' => $temperature])->temperature)->toBe($temperature);
+    })->with([Support::Native, Support::None]);
+
+    it('throws when temperature is emulated', function (): void {
+        expect(fn() => makeCapabilities(['temperature' => Support::Emulated]))
+            ->toThrow(InvalidArgumentException::class, 'A temperature is native or none; it cannot be emulated.');
+    });
+
+    it('lets a model without a temperature have every other capability', function (): void {
+        $capabilities = makeCapabilities(['temperature' => Support::None]);
+
+        expect($capabilities->toolCalling)->toBe(Support::Native)
+            ->and($capabilities->structuredOutput)->toBe(Support::Native)
+            ->and($capabilities->temperature->isAvailable())->toBeFalse();
     });
 
     it('allows a context length that is not known', function (): void {

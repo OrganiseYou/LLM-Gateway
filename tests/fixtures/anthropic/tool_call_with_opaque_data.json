@@ -1,0 +1,14 @@
+{
+    "id": "msg_example01",
+    "type": "message",
+    "role": "assistant",
+    "model": "example-messages-1",
+    "content": [
+        {"type": "thinking", "thinking": "The user asks about one city, so the lookup tool is the way: opaque-tracer.", "signature": "c2lnLWV4YW1wbGUtMDE="},
+        {"type": "tool_use", "id": "toolu_example01", "name": "lookup", "input": {"city": "Paris"}}
+    ],
+    "stop_reason": "tool_use",
+    "stop_sequence": null,
+    "stop_details": null,
+    "usage": {"input_tokens": 3, "output_tokens": 2}
+}

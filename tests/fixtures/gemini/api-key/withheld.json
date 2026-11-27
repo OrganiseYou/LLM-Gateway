@@ -1,0 +1,11 @@
+{
+  "candidates": [
+    {
+      "index": 0,
+      "finishReason": "SAFETY"
+    }
+  ],
+  "usageMetadata": {"promptTokenCount": 3, "thoughtsTokenCount": 2, "totalTokenCount": 5},
+  "modelVersion": "example-generate-1",
+  "responseId": "resp-example01"
+}

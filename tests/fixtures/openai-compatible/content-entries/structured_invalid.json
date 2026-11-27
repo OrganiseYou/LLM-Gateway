@@ -1,0 +1,22 @@
+{
+    "id": "cmpl-example-0006",
+    "object": "chat.completion",
+    "created": 1795000000,
+    "model": "example-large-1",
+    "choices": [
+        {
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "content": "{\"city\":\"Paris\",\"days\":\"three\"}",
+                "tool_calls": null
+            },
+            "finish_reason": "stop"
+        }
+    ],
+    "usage": {
+        "prompt_tokens": 3,
+        "completion_tokens": 2,
+        "total_tokens": 5
+    }
+}

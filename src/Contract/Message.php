@@ -6,6 +6,10 @@ namespace OrganiseYou\LlmGateway\Contract;
 
 /**
  * One message of a conversation. A tool result is a message too: the library never runs a tool.
+ *
+ * An assistant message may hold one opaque part: data that came with the answer and goes back with it. Build the
+ * assistant message of the next round with Answer::toMessage(), or copy every part of that message: assistant()
+ * builds a message without it.
  */
 final readonly class Message
 {
@@ -74,6 +78,9 @@ final readonly class Message
         if ($this->parts === []) {
             throw new InvalidValue('A system or user message needs at least one content part.');
         }
+        if ($this->opaqueParts() > 0) {
+            throw new InvalidValue('Only an assistant message can hold an opaque part.');
+        }
         if ($this->toolCalls !== []) {
             throw new InvalidValue('A system or user message cannot hold tool calls.');
         }
@@ -90,6 +97,12 @@ final readonly class Message
         if ($this->toolCallId !== null || $this->toolName !== null) {
             throw new InvalidValue('An assistant message cannot hold a tool call id or a tool name.');
         }
+        if ($this->opaqueParts() > 1) {
+            throw new InvalidValue('An assistant message can hold one opaque part, not more.');
+        }
+        if ($this->opaqueParts() === 1 && count($this->parts) === 1 && $this->toolCalls === []) {
+            throw new InvalidValue('An opaque part needs a text or a tool call beside it.');
+        }
 
         $seen = [];
         foreach ($this->toolCalls as $toolCall) {
@@ -105,6 +118,9 @@ final readonly class Message
         if ($this->parts === []) {
             throw new InvalidValue('A tool message needs at least one content part.');
         }
+        if ($this->opaqueParts() > 0) {
+            throw new InvalidValue('Only an assistant message can hold an opaque part.');
+        }
         if ($this->toolCalls !== []) {
             throw new InvalidValue('A tool message cannot hold tool calls.');
         }
@@ -114,6 +130,18 @@ final readonly class Message
         if ($this->toolName === null) {
             throw new InvalidValue('A tool message needs the name of the tool that was called.');
         }
+    }
+
+    private function opaqueParts(): int
+    {
+        $count = 0;
+        foreach ($this->parts as $part) {
+            if ($part instanceof OpaquePart) {
+                $count++;
+            }
+        }
+
+        return $count;
     }
 
     /**

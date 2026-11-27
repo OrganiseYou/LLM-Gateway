@@ -18,6 +18,8 @@ final readonly class Capabilities
      * @param Support $streaming native, or emulated (the whole answer as one text event); never none
      * @param Support $modelListing can the models be listed: native or none
      * @param int|null $contextLength in tokens, when it is known without a request
+     * @param Support $temperature native: the temperature of a request is sent; none: the model takes none, and a
+     *                             request that gives one is refused as not supported. Never emulated
      */
     public function __construct(
         public Support $toolCalling,
@@ -28,6 +30,7 @@ final readonly class Capabilities
         public Support $streaming,
         public Support $modelListing,
         public ?int $contextLength,
+        public Support $temperature = Support::Native,
     ) {
         if ($contextLength !== null && $contextLength < 1) {
             throw new InvalidValue('The context length must be 1 or more.');
@@ -50,6 +53,9 @@ final readonly class Capabilities
         }
         if ($modelListing === Support::Emulated) {
             throw new InvalidValue('Model listing is native or none; it cannot be emulated.');
+        }
+        if ($temperature === Support::Emulated) {
+            throw new InvalidValue('A temperature is native or none; it cannot be emulated.');
         }
     }
 }

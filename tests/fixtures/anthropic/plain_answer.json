@@ -1,0 +1,13 @@
+{
+    "id": "msg_example01",
+    "type": "message",
+    "role": "assistant",
+    "model": "example-messages-1",
+    "content": [
+        {"type": "text", "text": "Hello."}
+    ],
+    "stop_reason": "end_turn",
+    "stop_sequence": null,
+    "stop_details": null,
+    "usage": {"input_tokens": 3, "cache_creation_input_tokens": null, "cache_read_input_tokens": null, "output_tokens": 2, "service_tier": "standard", "inference_geo": "global"}
+}

@@ -18,20 +18,27 @@ What works today:
 - the adapter base `Adapter\Shared\AbstractAdapter`, which you extend to add a format of your own;
 - the check of a structured answer against its JSON Schema;
 - `Testing\FakeGateway`, a gateway for your tests;
-- `Testing\ContractTestCase`, the shared test set every adapter must pass.
+- `Testing\ContractTestCase`, the shared test set every adapter must pass;
+- four shipped adapters, each with its model list: `Adapter\OpenAiCompatible\ChatCompletionsAdapter`, for the
+  chat-completions format that many servers speak, `Adapter\Anthropic\MessagesAdapter`, for the Messages format,
+  `Adapter\Gemini\GenerateContentAdapter`, for the generate-content format, and `Adapter\Cohere\ChatV2Adapter`, for
+  the Chat v2 format.
+  See [The shipped adapters](#the-shipped-adapters).
 
 What is coming, and is **not built yet**:
 
-- the shipped adapters (one per API format) and the shipped presets (one per provider; the list is in
+- the other shipped adapters (one per API format) and the shipped presets (one per provider; the list is in
   [docs/requirements.md](docs/requirements.md), LR-18 and LR-21);
 - the preset catalogue `Preset\Presets`, to list the providers the library knows;
 - per preset, what a customer needs from their provider to connect;
 - the tool loop (`src/Loop`): today you write the loop yourself, as shown under [Tools](#tools);
 - the connection check: `Gateway::check()` exists, but a gateway built on the adapter base answers `not_supported`
   for now;
-- model lists per shipped adapter: `Gateway::models()` exists and works for an adapter you write yourself.
+- model lists for the other shipped adapters: `Gateway::models()` works for the four shipped adapters and for an
+  adapter you write yourself.
 
-So today you can use the library in two ways: with the fake gateway, and with an adapter you write yourself. Every
+So today you can use the library in three ways: with the fake gateway, with a shipped adapter and a preset
+you make yourself, and with an adapter you write yourself. Every
 code sample below says which kind it is. "Runs today" uses only what is in `src/` now. "Not built yet" shows the
 intended shape in a few lines; it may still change.
 
@@ -131,7 +138,15 @@ echo $answer->latencyMs;            // prints 0
 ```
 
 A token count is `null` when the provider did not report it. The finish reason is one of `stop`, `tool_calls`,
-`length` (cut off at the token limit), `content_filter` and `other`.
+`length` (cut off at the token limit), `content_filter` (the provider withheld the output), `refusal` (the model
+declined to answer) and `other`. A later version may add one: give a `match` over `FinishReason` a default arm.
+
+An answer can come without text and without a tool call. That happens with three finish reasons only: `length` (the
+model spent every token before it wrote anything), `content_filter` and `refusal`. It is an answer, not an error:
+look at the finish reason before you use the text. `Answer::toMessage()` throws a `LogicException` for such an
+answer: there is nothing to send back, so check the finish reason before you build the next round. A refusal that has
+words keeps them as its text. A prompt the
+provider refused to take is something else: an error with the reason `rejected`.
 
 ### The same answer as a stream
 
@@ -223,6 +238,12 @@ $request = new Request(
 // Round 1: the model asks for a tool call.
 $answer = $gateway->complete($request);
 
+// No tool call: there is no next round. An answer without text and without a tool call cannot even become a
+// message (toMessage() throws), so look at the finish reason here instead.
+if ($answer->toolCalls === []) {
+    throw new \RuntimeException('The model asked for no tool call and ended with: ' . $answer->finishReason->value);
+}
+
 $messages = [...$request->messages, $answer->toMessage()];
 foreach ($answer->toolCalls as $call) {
     $result = $call->isReadable()
@@ -241,6 +262,11 @@ echo $final->text;  // prints It is 18 degrees in Utrecht.
   `JsonSchema::fromJson()`.
 - A model can garble a call. Arguments that cannot be read are not an exception: `isReadable()` is false and
   `argumentsError` says why. A tool name is given as the model wrote it; check it against your own tools.
+- Build the assistant message of the next round with `$answer->toMessage()`. Some providers send data with an
+  answer that must go back unchanged; `toMessage()` carries it as a `Contract\OpaquePart`, which you skip when you
+  read a message and keep when you send or store one (`$part->data` is text; build it again with `new OpaquePart`).
+  A part that holds your key, or is larger than 1 MiB, is dropped without a word; the next round then goes without
+  it, and a provider that insists on that data may refuse the request (`rejected`).
 - The tool choice is `ToolChoice::auto()` (the default), `ToolChoice::none()`, `ToolChoice::required()` (some tool)
   or `ToolChoice::tool('get_weather')` (this tool). Set it with `withToolChoice()` or the `toolChoice` argument.
 - A tool loop that does these rounds for you is not built yet.
@@ -440,6 +466,10 @@ Each capability is `native`, `emulated` or `none`:
 | `streaming` | `native`, or `emulated`: the whole answer arrives at once, as the same events. Never `none`. |
 | `modelListing` | Can the models be listed? `native` or `none`. |
 | `contextLength` | In tokens, when it is known without a request; else `null`. |
+| `temperature` | Does the model take a temperature? `native` or `none`. The last argument of `Capabilities`; left out, it is `native`. |
+
+A request that gives a temperature to a model that takes none is refused as `not_supported` before anything is sent.
+The library never drops the value for you: ask the capability first, and leave the temperature out.
 
 `emulated` means the library does the work for you and the result has the same shape. You do not have to treat it
 differently.
@@ -581,8 +611,8 @@ $chosen = Presets::find('the-id-the-customer-chose');
 A preset you made yourself is not in that catalogue. Keep your own next to it in your own list.
 
 **Step 2: ask the chosen provider for its models.** `Gateway::models()` exists. It needs that customer's credentials
-and it sends a request, so it takes a timeout and can fail like any call. The shipped adapters will fill it in later;
-the fake shows the shape. Runs today.
+and it sends a request, so it takes a timeout and can fail like any call. The four shipped adapters read it; the
+other adapters will follow. The fake shows the shape. Runs today.
 
 <!-- example: runs -->
 ```php
@@ -624,14 +654,16 @@ For a model it does not know, `capabilities()` answers with the defaults of its 
 
 Build your own `Preset` object in your own code. A preset is data: no class to write.
 
-**Not built yet:** a preset must name an adapter class, and the shipped adapters do not exist yet. In the sample
-`KnownFormatAdapter` is a placeholder for the shipped adapter of that format. Today this works only with an adapter
-you write yourself, as in case (c). The names of the adapter options are the adapter's own, so they may change too.
+A preset must name an adapter class. Four shipped adapters exist today, for the chat-completions format, for the
+Messages format, for the generate-content format and for the Chat v2 format; the others are not built yet (see [The shipped adapters](#the-shipped-adapters)). In the sample `KnownFormatAdapter` is a
+placeholder for the shipped adapter of your format: write the class of that adapter in its place, or an adapter you
+wrote yourself, as in case (c).
 
 <!-- example: coming, placeholder: KnownFormatAdapter -->
 ```php
 use OrganiseYou\LlmGateway\Contract\Credentials\CredentialKind;
 use OrganiseYou\LlmGateway\Preset\BaseUrlRule;
+use OrganiseYou\LlmGateway\Preset\ModelOverride;
 use OrganiseYou\LlmGateway\Preset\Preset;
 use OrganiseYou\LlmGateway\Preset\PresetField;
 
@@ -642,7 +674,7 @@ $preset = new Preset(
     label: 'Example Cloud',
     // What the customer needs, in one plain sentence.
     description: 'You need an API key and the region of your Example Cloud account.',
-    // The adapter that speaks the format. Placeholder: the shipped adapters are not built yet.
+    // The adapter that speaks the format. Placeholder: put the class of a shipped adapter here, or your own.
     adapter: KnownFormatAdapter::class,
     // Who gives the address: Fixed (only this one), CustomerMay (may replace it) or CustomerMust (no default).
     baseUrlRule: BaseUrlRule::Fixed,
@@ -654,21 +686,411 @@ $preset = new Preset(
     keyHeader: 'X-Api-Key',
     // What the customer fills in beside the key: key, label, required, and a pattern the whole value must match.
     // A field used in the address must have a pattern. Never put a secret in a field.
-    fields: [new PresetField('region', 'Region', true, '[a-z]{2}[0-9]')],
+    // A fifth value names a request header: the setting is then sent in it with every request, when filled in.
+    fields: [
+        new PresetField('region', 'Region', true, '[a-z]{2}[0-9]'),
+        new PresetField('workspace', 'Workspace', false, 'ws_[a-z0-9]+', 'X-Example-Workspace'),
+    ],
     // Where the provider processes data, as its own documentation says it.
     dataLocation: 'European Union, as the provider states',
     // The link to that statement, or null.
     dataLocationSource: 'https://llm.example.test/docs/data-location',
     // True when the adapter sends the provider's option not to store the conversation.
     sendsNoStoreOption: false,
-    // Where this server differs from the defaults of its format. The adapter defines the names.
+    // Where this server differs from the defaults of its format. The capability options below are the same for
+    // every adapter; the other names are the adapter's own.
     adapterOptions: ['structured_output' => 'emulated'],
+    // Options for named models, where they differ from the rest. * stands for any run of characters.
+    modelOverrides: [new ModelOverride('example-small-*', ['forced_tool_call' => 'none'])],
+    // What the provider keeps of a request and how the customer arranges otherwise, in one plain sentence.
+    storageNote: 'Requests are kept for 30 days; ask the provider for an agreement to keep nothing.',
+    // The link to that statement, or null.
+    storageNoteSource: 'https://llm.example.test/docs/data-storage',
 );
 ```
 
 The customer's values for the fields go in `GatewayConfig::$settings`, here `['region' => 'eu1']`. A value that fills
 a placeholder of the address may hold only letters, digits and `. _ ~ -`, so a setting can never move a request to
 another host.
+
+**A setting as a header.** A field with a header name is sent in that header with every request of the gateway,
+when the customer filled it in: `['region' => 'eu1', 'workspace' => 'ws_12ab']` sends `X-Example-Workspace: ws_12ab`.
+It is a setting, not a secret: it shows in the attempt reports. Such a field must have a pattern, and its value must
+be visible ASCII without a space; otherwise building the gateway fails as `not_configured` and nothing is sent. The
+header name has no underscore, is not digits only, and can never be a header of the sign-in (`Authorization`,
+`Cookie`, the header of the key), one that moves a request (`Host`, `Via`, every `Proxy-…`, `Sec-…` and
+`X-Forwarded-…`), one of the connection and the body (`Content-Type`, `Content-Length`, and the like) or one that
+changes the response (`Accept`, `Accept-Encoding`, `Range`). The list cannot know the headers of your provider: never
+name a header that carries a credential there.
+
+**Capability options.** Every adapter reads these options, with these words. An option you leave out keeps the
+default of the format. A value outside its list fails as `not_configured` when the gateway is asked for capabilities
+or for a call.
+
+| Option | Values |
+|---|---|
+| `tool_calling` | `native`, `none` |
+| `forced_tool_call` | `native`, `emulated`, `none` |
+| `parallel_tool_calls` | `native`, `none` |
+| `structured_output` | `native`, `emulated`, `none` |
+| `tools_with_structured_output` | `native`, `emulated`, `none` |
+| `streaming` | `native`, `emulated` |
+| `model_listing` | `native`, `none` |
+| `temperature` | `accepted`, `not_accepted` |
+| `context_length` | an integer of 1 or more |
+
+Without tool calling there is no forced tool call, there are no parallel tool calls and no tools with structured
+output, whatever the other options say; without structured output there are no tools with structured output.
+
+**Options per model.** What `capabilities()` answers for a model comes from the first that speaks: a model override
+that fits the name, then the options of the preset, then the defaults of the format. Every override that fits is
+used, in the order of the list; a later one wins from an earlier one, so write the general pattern first and the
+exception after it. An override is not a list of the models a preset knows: a model that fits none gets the options
+of the preset. `$preset->optionsFor('example-small-2')` gives the options as they are for that model.
+
+**Changing an option later.** `$preset->withAdapterOptions(['streaming' => 'native'])` gives a copy of the preset
+with these options laid over its own. Use it when you learned more about a server than its preset says. The model
+overrides stay as they are, and still win for the models they fit.
+
+#### The shipped adapters
+
+One adapter per API format. A provider that speaks a format the library knows is a preset on that adapter, not a
+class of its own.
+
+| Format | Adapter class | Status |
+|---|---|---|
+| Chat completions (`POST {base}/chat/completions`, the format many servers call "OpenAI-compatible") | `Adapter\OpenAiCompatible\ChatCompletionsAdapter` | built |
+| Messages (`POST {base}/v1/messages`) | `Adapter\Anthropic\MessagesAdapter` | built |
+| Generate-content (`POST {base}/models/{model}:generateContent`) | `Adapter\Gemini\GenerateContentAdapter` | built |
+| Chat v2 (`POST {base}/v2/chat`) | `Adapter\Cohere\ChatV2Adapter` | built |
+| Responses | `Adapter\OpenAiResponses\ResponsesAdapter` | not built yet |
+
+**The chat-completions adapter.** It sends a request to `{base URL}/chat/completions` and reads the model list at
+`{base URL}/models`. The base URL is used exactly as the preset or the customer gives it, with or without `/v1` in
+it. What it sends is a closed list of fields: `model`, `messages`, `tools`, `tool_choice`, `response_format`, the
+maximum of output tokens, `temperature`, `stream`, `stream_options` and `store`. It never sends a field that only one
+provider has, and it leaves `tools` out when the request has no tools. A tool name must be letters, digits,
+underscores and hyphens, at most 64 characters; another name is refused as `rejected` before anything is sent.
+
+Its defaults, for a preset that sets no option: every capability is native, except tools together with a response
+format, which is emulated (the tools are sent and the schema goes into the system text).
+
+Servers of this format differ in small ways. Where the difference is data, the preset says so with one of the
+options below, in `adapterOptions` or, for named models, in a `ModelOverride`. An option you leave out has its
+default, the first value. A value outside the list fails as `not_configured` when the gateway is asked for
+capabilities or for a call, and nothing is sent. So does an option whose name the adapter does not know: a preset on
+this adapter holds only the options below and the capability options, so a name written wrongly is found. The word
+`false` may be written as the string or as the boolean.
+
+| Option | Values (default first) | What it changes |
+|---|---|---|
+| `max_tokens_field` | `max_completion_tokens`, `max_tokens` | the name of the field for the maximum of output tokens |
+| `system_role` | `system`, `developer` | the role a system message is sent with |
+| `system_messages` | `separate`, `joined` | one message per system message, or one message with the texts joined by a blank line |
+| `assistant_content_without_text` | `null`, `empty_string` | the `content` of an assistant message that holds only tool calls |
+| `required_word` | `required`, `any` | the word of `tool_choice` for "must call some tool" |
+| `named_tool_choice` | `object`, `required_single`, `unsupported` | how one named tool is forced: the named-function object; the word above with only that tool in `tools`; or not at all. The capability "forced tool call" follows it: native, emulated, none |
+| `tool_strict` | `omit`, `false` | whether `strict: false` is written on every tool |
+| `tool_result_name` | `false`, `true` (booleans) | whether a tool message also carries the name of its tool |
+| `json_schema_strict` | `omit`, `false`, `when_fits` | the `strict` flag of a response format: not sent; always `false`; or `true` only when your schema already fits the subset of `strict_subset`, and `false` otherwise. Your schema is never changed |
+| `strict_subset` | `standard`, `narrow` | which documented subset `when_fits` tests |
+| `json_schema_key` | `schema`, `schema_definition` | the name under which the schema stands in the response format |
+| `stream_usage` | `on_request`, `unasked` | whether a stream is asked to report its token usage |
+| `store_field` | `omit`, `false` | whether `store: false` is sent. Set the preset's `sendsNoStoreOption` to true exactly when this is `false` |
+| `reasoning_carrier` | `none`, `message_field`, `content_entries` | whether reasoning that came with an answer goes back with that answer in the next round, in the opaque part of `Answer::toMessage()`, and where it sits: in a field beside the content, or as entries of a content that is a list |
+| `inline_reasoning` | `keep`, `strip` | whether one leading `<think>…</think>` block is cut from the text of an answer |
+| `finish_content_filter` | `withheld`, `unknown` | whether the finish reason `content_filter` means withheld output, or only that the server did not understand why the answer ended |
+| `models_path` | `/models`, or another path under the base URL | where the model list is |
+| `model_id_field` | `id`, or another field name | the field of an entry of the model list that goes into a request's `model` |
+
+Set `forced_tool_call` only to say `none` for a model that cannot be forced; any other value must be the one
+`named_tool_choice` gives, or the preset fails as `not_configured`.
+
+**Reasoning that must go back.** Some servers want the reasoning of an answer back in the next round of a tool
+loop. With `message_field` the reasoning is a string beside the content, and it goes back in the same field. With
+`content_entries` the content of the answer is a list of entries, and some are no text (reasoning, a citation, a kind
+of entry the adapter does not know): the adapter keeps the whole list, as the JSON text the server wrote, and sends
+it back as the content of that assistant message. Either way the data travels in the opaque part of the answer, the
+text of the answer is only its text entries, and you do nothing but use `$answer->toMessage()` for the next round. A
+message whose text or tool calls you changed goes back without the data, built from what it holds now. In a stream
+the list arrives in pieces; the adapter joins them into one list before it gives the answer, and no event of the
+stream holds reasoning. A list of more than 1 MiB or of more than 10,000 objects and lists is not kept: the answer
+then comes without the data. A part is only as trustworthy as the transcript it comes from. The library holds no
+secret, so a part with this adapter's mark that someone built by hand can put any list of entries into the content
+of its own assistant message, also kinds of entry the provider acts on; if you keep transcripts where others can
+write, check them before you pass them on.
+
+**When `when_fits` sends `strict: true`.** Only when every part of your schema is something the provider's
+documentation names as accepted. For `standard`: the keywords `type`, `properties`, `required`,
+`additionalProperties: false`, `items`, `enum`, `const`, `anyOf` (not at the root), `$defs` and `$ref` to `#` or
+`#/$defs/…`, `pattern`, `format` (`date-time`, `time`, `date`, `duration`, `email`, `hostname`, `ipv4`, `ipv6`,
+`uuid`), `multipleOf`, `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `minItems`, `maxItems`; every
+property required and every object closed; at most 10 levels and 5000 properties. `narrow` is the same without
+`pattern`, `format`, `minimum`, `maximum`, `multipleOf`, `minItems` and `maxItems`, with at most 5 levels and 100
+properties. Any other keyword makes the flag `false`, also `description`, `title`, `default`, `minLength` and
+`oneOf`: the documentation the library was built from does not name them as accepted. The answer is checked against
+your whole schema either way.
+
+What the adapter reads without an option, for every server: an answer whose `content` is a string, `null` or a list
+of entries; tool-call arguments as a string that holds JSON or as an object; a tool call by its presence, whatever
+finish reason came with it; reasoning beside the answer, which never becomes answer text; the usage wherever a
+stream puts it; a stream with or without its closing `data: [DONE]`; and four shapes of an error body (an `error`
+object, a flat object with a type and a code, a flat object whose `error` is a word, and a body with only a `detail`,
+as a sentence or as a list with an item per refused field). Only the provider's code is taken from an error body,
+never its sentences. A status 429
+whose body says the account is out of credit ends as `rejected` with the provider's code and is not tried again; one
+that says the provider is overloaded ends as `unavailable`. A finish reason that means "tool calls" on an answer
+without a tool call is given as `other`.
+
+**The Messages adapter.** It sends a request to `{base URL}/v1/messages` and reads the model list at
+`{base URL}/v1/models`, one page of at most 1000 models. What it sends is a closed list of fields: `model`,
+`max_tokens`, `system`, `messages`, `tools`, `tool_choice`, `output_config` (the schema of a response format),
+`temperature` and `stream`. Every request carries the header `anthropic-version`. The key goes as a bearer, or in the
+header your preset names in `keyHeader`. A tool name must be letters, digits, underscores and hyphens, at most 128
+characters; another name is refused as `rejected` before anything is sent.
+
+A preset on this adapter must set two options of its own, beside the capability options:
+
+| Option | Values | What it changes |
+|---|---|---|
+| `api_version` | a date, such as `2026-10-21` or `2023-06-01`; no default | the value of the `anthropic-version` header |
+| `default_max_output_tokens` | a whole number of 1 or more; no default | the `max_tokens` of a request that gives no maximum of output tokens. The format requires that field, so the adapter always sends one: the maximum of your request, or this number |
+
+A preset that leaves one of the two out fails as `not_configured` the first time the gateway is asked for
+capabilities, a call or the model list, also for a request that gives its own maximum: the library holds no version
+and no number of its own. A value outside its list fails the same way, and nothing is sent. So does an option whose
+name the adapter does not know. Both options can be set per model with a `ModelOverride`.
+
+Its defaults, for a preset that sets only these two: every capability is native, also tools together with a response
+format, and a temperature is sent. Set `'temperature' => 'not_accepted'` for the API version `2026-10-21`, on which
+the provider refuses a temperature for every model: a request with a temperature is then refused as `not_supported`
+before anything is sent.
+
+What it does with a transcript:
+
+- The system messages go into the one top-level `system` field, joined by a blank line.
+- Neighbouring messages of the same role become one message. The format has no role for a tool result: the tool
+  results of one round become one `user` message, a block per result, before any text of that message.
+- A transcript that ends with an assistant message is refused as `rejected` before anything is sent. The format
+  reads such a message as the start of the answer, and current models refuse that. So is a transcript that holds
+  only system messages: the format needs a message beside its system text.
+- A tool call goes back with its arguments as an object. A call whose arguments could not be read goes back with an
+  empty object, because the format takes nothing else there; your tool result tells the model what went wrong.
+
+**Thinking that must go back.** An answer of this format can hold thinking blocks, with a signature, before its text
+and its tool calls. The provider wants them back unchanged in the next round of a tool loop. The adapter never gives
+thinking as answer text, and no stream event holds it. It keeps the whole list of content blocks, as the JSON text the
+server wrote, in the opaque part of the answer, and sends that list back as the content of that assistant message.
+You do nothing but use `$answer->toMessage()` for the next round. A message whose text or tool calls you changed goes
+back without the list, built from what it holds now; the provider may then refuse the request, which you see as
+`rejected`. In a stream the blocks arrive in pieces; the adapter joins them into the same list before it gives the
+answer. The adapter keeps a list only when every block in it is one of the four kinds the provider documents for
+text chat (text, a tool call, thinking, redacted thinking) with exactly the members the provider documents for that
+kind. A content with another kind of block, with a member the adapter does not know, with an object that holds the
+same name twice, or of more than 1 MiB or more than 10,000 objects and lists is not kept: the answer then comes
+without the data, and its text and tool calls are read all the same. A part is only as trustworthy as the transcript
+it comes from. The library holds no secret, so a part with this adapter's mark that someone built by hand is sent
+when it passes that same rule and says what the message says: the same text, and the same tool calls with the same
+id, name and arguments. What that someone can then still choose is what has no other place in the message: the text
+of the thinking, its signature and the data of redacted thinking. If you keep transcripts where others can write,
+check them before you pass them on.
+
+**A response format.** The format has structured output of its own, and it refuses some JSON Schema keywords. Your
+schema is never changed, and the answer is always checked against all of it. What the adapter sends is your schema,
+or a looser copy: without `minimum`, `maximum`, `multipleOf`, `minLength`, `maxLength`, `maxItems`, `uniqueItems`,
+`not`, and without `minItems` when it is above 1, and with `oneOf` written as `anyOf`. When your schema is one the
+format cannot take at all, the adapter puts it into the system text for that one request instead and asks for JSON
+in words: a schema that refers back to itself, one with an object that does not say `additionalProperties: false`,
+a `$ref` to another document, an `enum` value that is an object or a list, a `pattern` with a lookaround or a
+backreference (by number or by name), or a schema in which leaving a keyword out would make it stricter (a refused keyword under `if`, for
+example). You see no difference: the capability stays native and the structured result is the same. The name and the
+description of a response format are not sent on the native route; the format has no place for them.
+
+What the adapter reads without an option: the text of the text blocks, joined; a tool call per `tool_use` block,
+whatever stop reason came with it; the usage with the tokens written to and read from the prompt cache added to the
+input; and, in a stream, text and tool arguments in pieces, `ping` events, and events, blocks and deltas of a kind
+it does not know, which it skips. A stream that ends without its last event fails as `provider_error`, with the text
+that arrived. An `error` event inside a stream ends it with the reason of its type: `unavailable` when the provider
+is overloaded, `rate_limited` for a rate limit, `provider_error` otherwise. The finish reason `refusal` means the
+model declined; such an answer may have no text. From an error body only the provider's code is taken (its error
+code when it has one, otherwise its type), never its sentences. A status 429 whose code says the spend cap of the
+account was reached ends as `rejected` and is not tried again. A failed response with the header
+`x-should-retry: false` is not tried again and tells no wait.
+
+**The generate-content adapter.** It sends a request to `{base URL}/models/{model}:generateContent`, a stream to
+`{base URL}/models/{model}:streamGenerateContent?alt=sse`, and reads the model list at
+`{base URL}/models?pageSize=1000`: one page, and it never asks for a next one. The base URL carries everything
+before `/models`, so the same adapter serves both ways in the provider has: they differ in the base URL, in how a
+request signs in and in the options of the preset. What it sends is a closed list of fields: `systemInstruction`,
+`contents`, `tools`, `toolConfig`, `generationConfig` (the maximum of output tokens, the temperature and the schema
+of a response format) and `store`. The key goes in the header your preset names in `keyHeader`, a token as a bearer;
+neither is ever written into the address.
+
+The model stands in the path of the address. So a model name must be letters, digits, dots, underscores and
+hyphens, starting with a letter or a digit, without two dots in a row and at most 128 characters; another name
+(with a slash, a colon, a question mark, a percent sign, a whole address) is refused as `rejected` before anything
+is sent. A tool name must
+start with a letter or an underscore and hold only letters, digits and underscores, at most 64 characters; another
+name is refused the same way.
+
+A preset on this adapter can set two options of its own, beside the capability options:
+
+| Option | Values (default first) | What it changes |
+|---|---|---|
+| `structured_output_field` | `response_json_schema`, `response_format` | where the schema of a response format is written: in `generationConfig.responseJsonSchema` with `responseMimeType: "application/json"`, or in `generationConfig.responseFormat.text` with `mimeType` and `schema`. The provider's pages do not agree on the field, so it is an option |
+| `store_field` | `omit`, `false` | whether `store: false` is sent. Only one of the two ways in documents the field |
+
+A value outside its list fails as `not_configured` the first time the gateway is asked for capabilities, a call or
+the model list, and nothing is sent. So does an option whose name the adapter does not know. Both options can be set
+per model with a `ModelOverride`.
+
+Its defaults, for a preset that sets nothing: every capability is native, except tools together with a response
+format, which is emulated: the tools are sent and the schema goes into the system text. The provider documents
+both in one request for some of its models only; set `'tools_with_structured_output' => 'native'` in a
+`ModelOverride` for a model you know takes both.
+
+What it does with a transcript:
+
+- The system messages go into the one `systemInstruction` field, joined by a blank line. A transcript that holds
+  only system messages is refused as `rejected` before anything is sent.
+- A user message is a content of the role `user`, an assistant message one of the role `model`. The format has no
+  role for a tool result: the tool results that follow one assistant message become one `user` content, a part per
+  result, in the order of the calls of that message, each with the name of its tool and your text as its output.
+- A tool call goes back with its arguments as an object. A call whose arguments could not be read goes back with an
+  empty object, because the format takes nothing else there; your tool result tells the model what went wrong.
+  Arguments you wrote yourself as a text that holds the same name twice go back as they were decoded, not as that
+  text.
+- The format does not always give a tool call an id. A call without one gets an id from the adapter (`call-0`,
+  `call-1`, by its place in the answer), which you use as every other id. The adapter does not send such an id
+  back, not with the call and not with its result: the result goes back with the name of its tool, in the place
+  of its call. An id the server gave goes back as it came.
+
+**Tool calls and thought signatures that must go back.** An answer of this format can carry a signature on a part:
+an opaque value the provider wants back, in the same part, with the next round of a tool loop. And a tool call of
+this format has an id of the server or none, which the neutral tool call cannot say. The adapter never gives a
+signature, or a thought, as answer text, and no stream event holds it. For every answer that holds a signature or a
+tool call it keeps the whole list of parts, as the JSON text the server wrote, in the opaque part of the answer, and
+sends that list back as the parts of that one turn. You do nothing but use `$answer->toMessage()` for the next
+round. In a stream the parts arrive chunk by chunk; the adapter puts them together into the list of the whole
+answer.
+
+When the skip value is sent: the provider documents the value `skip_thought_signature_validator` in place of a
+signature, for a tool call the model did not produce. The adapter sends it, on the first tool call of an assistant
+message, exactly when that message goes back without the list of parts that came with it: a message you built by
+hand, a message whose text or tool calls you changed, a message of another provider, a message whose opaque part
+you dropped, and an answer whose parts the adapter did not keep (see below). It is never sent with an answer that
+goes back as `$answer->toMessage()` gave it and whose parts were kept. Such a message is built from what it holds
+now, and an id of the form `call-0` in it is taken for one the adapter made and is not sent.
+
+The adapter keeps a list only when every part in it is one of the two kinds the provider documents for text chat
+(text, a tool call) with exactly the members the provider documents. Parts of another kind, a member the adapter
+does not know, a tool call whose arguments could not be read, an object that holds the same name twice, or a list
+of more than 1 MiB or more than 10,000 objects and lists is not kept: the answer then comes without the data, and
+its text and tool calls are read all the same. A part is only as trustworthy as the transcript it comes from. The
+library holds no secret, so a part with this adapter's mark that someone built by hand is sent when it passes that
+same rule and says what the message says: the same text, and the same tool calls in the same order, each with the
+same id, the same name and the same arguments. The arguments are compared as JSON text, not as values: a message
+whose arguments you wrote again with a number in another spelling (`1.0` as `1`) or with the members in another
+order goes back built from what it holds, as a changed message does. What that someone can then still choose is
+what has no other place in the message, and nothing else: the value of a signature and the part it stands on;
+thoughts, with their text and their place; where the text of the message stands among its tool calls and over how
+many parts it is cut; and, for a call whose id is of the form `call-0`, whether the server gave that id. If you
+keep transcripts where others can write, check them before you pass them on.
+
+**A response format.** The format has structured output of its own, and the provider says it ignores the JSON
+Schema keywords it does not support. So the adapter sends your schema as it is, takes nothing out and never leaves
+the native route for a keyword. The answer is always checked against all of your schema by the library: a keyword
+the provider ignored is still held. A schema the provider finds too large or too deep comes back as `rejected`.
+The name and the description of a response format are not sent on the native route.
+
+What the adapter reads without an option: the text of the parts that are no thought, joined; a tool call per
+`functionCall` part, wherever it stands; a finish reason in both spellings the provider's pages use (`STOP` and
+`FINISH_REASON_STOP`); the usage, with the tokens of the thoughts added to the output; and, in a stream, a chunk
+without an answer in it, a chunk with only the usage, and a part of a kind it does not know, which it skips. The
+format has no finish reason for a tool call: an answer that holds one ends as `tool_calls`. A stream of this format
+has no last event: it is complete when its body ends. A prompt the provider refused arrives as a successful
+response without an answer; it ends as `rejected`, with the provider's reason as the code. An answer the provider
+withheld is an answer with the finish reason `content_filter`, and may have no text. A finish reason that says the
+answer itself is a fault (a tool call the model garbled, for example) ends as `provider_error` with that word as
+the code. So does an answer with a tool call that names no tool. From an error body only the provider's code is taken (the first reason among its details, otherwise its
+status word), never its sentences. A status 400 whose body says the key is not valid ends as
+`credentials_rejected`. A status 402 ends as `rejected` and is not tried again. The format documents no sign that
+forbids a retry and no wait.
+
+**The Chat v2 adapter.** It sends a request and a stream to `{base URL}/v2/chat`, and reads the model list at
+`{base URL}/v1/models?endpoint=chat&page_size=1000`: one page of the models that chat, and it never asks for a next
+one. Both are under the base URL, which carries no path (`https://api.cohere.com` for the provider's own API). What
+it sends is a closed list of fields: `model`, `messages`, `tools`, `tool_choice`, `response_format`, `max_tokens`,
+`temperature` and `stream`; `stream` is always written, as `false` or as `true`. The key goes as a bearer. It never
+sends `safety_mode`, `documents`, `citation_options`, `thinking`, `priority`, `strict_tools` or a header that names
+the caller. The provider documents no rule for a tool name, so no name is refused.
+
+A preset on this adapter can set one option of its own, beside the capability options:
+
+| Option | Values (default first) | What it changes |
+|---|---|---|
+| `schema_key` | `json_schema`, `schema` | the name under which the schema of a response format stands inside `response_format`. The provider's API reference writes `json_schema`, its guide `schema`; until a live check settles it, it is an option |
+
+A value outside its list fails as `not_configured` the first time the gateway is asked for capabilities, a call or
+the model list, and nothing is sent. So does an option whose name the adapter does not know. The option can be set
+per model with a `ModelOverride`.
+
+Its defaults, for a preset that sets nothing: every capability is native, except two that are emulated. A forced
+call of one named tool: the format can only say "a tool must be called", so the adapter sends that one tool alone.
+And tools together with a response format: the format refuses the pair, so the tools are sent and the schema goes
+into the system text.
+
+What it does with a transcript:
+
+- Every system message is a `system` message of its own, in its order; the schema of a response format that goes
+  into the system text is one more system message after yours.
+- A tool result is a `tool` message with the id of its call and your text.
+- A tool call goes back with its arguments as the text that arrived, also when they could not be read: the format
+  carries arguments as a string. Arguments you wrote yourself as a text that holds the same name twice go back as
+  they were decoded, not as that text.
+
+**The tool plan and thinking that must go back.** An answer of this format can hold a tool plan (free text the model
+writes before its tool calls) and thinking blocks in its content. The provider wants the assistant message back as it
+came. The adapter never gives the plan or thinking as answer text, and no stream event holds them. It keeps the plan,
+and the list of content blocks when it holds thinking, as the JSON text the server wrote, in the opaque part of the
+answer, and sends them back with that one assistant message. You do nothing but use `$answer->toMessage()` for the
+next round. A message whose text or tool calls you changed goes back without them, built from what it holds now. In a
+stream they arrive in pieces; the adapter joins them first. A content list is kept only when every block in it is a
+text block or a thinking block with exactly the members the provider documents. The plan and the list are each
+measured on their own, so a long answer text never costs the plan: a list of more than 9,999 blocks is not kept, and
+the whole opaque part, plan and list together, must fit in 1 MiB as it is sealed, where the kept text is escaped
+once more (a plan of plain letters alone fits up to 1,048,470 bytes). What does not fit is left out, and the answer
+comes without it; its text and tool calls are read all the same. A part is only as trustworthy as the
+transcript it comes from: a part with this adapter's mark that someone built by hand is sent when it passes that rule
+and its text blocks say the text of the message, so what that someone can still choose is the text of the plan and of
+the thinking, and over how many blocks the text is cut. If you keep transcripts where others can write, check them
+before you pass them on.
+
+**A response format.** The format has structured output of its own (`response_format` of the type `json_object` with
+a schema), and it refuses some JSON Schema keywords. Your schema is never changed, and the answer is always checked
+against all of it. What the adapter sends is your schema, or a looser copy: without `minimum`, `maximum`,
+`minItems`, `maxItems`, `minLength`, `maxLength`, `uniqueItems` and `not`, without `format` when one of its values is
+not `date-time`, `uuid`, `date` or `time`, and with `oneOf` written as `anyOf`. When your schema is one the format
+cannot take, the adapter puts it into the system text for that one request instead and asks for JSON in words: a
+schema with `allOf`, an object without a required property, a `pattern` that holds `^`, `$`, `?=` or `?!`, or a
+schema in which leaving a keyword out would make it stricter (a refused keyword under `if`, for example). You see no
+difference: the capability stays native and the structured result is the same. The name and the description of a
+response format are not sent on the native route.
+
+What the adapter reads without an option: the text of the text blocks, joined; a tool call per entry of
+`tool_calls`, whatever finish reason came with it; the token counts under `usage.tokens`, also written as `12.0`;
+and, in a stream, text and tool arguments in pieces, citations, debug events and events of a kind it does not know,
+which it skips. A stream that ends without its last event fails as `provider_error`, with the text that arrived. The
+finish words `ERROR` and `TIMEOUT`, and an error in the last event of a stream, end as `provider_error` with the word
+as the code. So does an answer with a tool call that names no tool. The format has no word for a refusal: a model
+that declines does so in ordinary text. The format has no error code, so the status alone decides the reason, and
+nothing of an error body is handed on: 402 (a billing limit) and 498 (a deny-listed token) end as `rejected` and are
+not tried again. The format documents no sign that forbids a retry and no wait.
+
+**A credential a server repeats.** For every adapter built on the adapter base: when a server repeats the key or the
+token it was sent, the model name of the answer falls back to the model of the request, an entry of the model list
+that holds it is skipped, and an answer with a tool call that holds it fails as `provider_error`, in a stream as the
+failed event.
 
 ### (c) A new format
 
@@ -678,6 +1100,7 @@ base does everything that is the same for every format.
 **What the base does for you:**
 
 - the sign-in header, for every attempt;
+- the settings of the customer that the preset sends as a header;
 - the retries, the waits and the deadline of the call;
 - the mapping of a failure to one of the eight reasons;
 - the refusal of a request the model cannot do, before anything is sent;
@@ -699,10 +1122,27 @@ base does everything that is the same for every format.
 | `providerCode($response)` | Optional. The provider's own code in a failed response. |
 | `refineReason($response, $reason)` | Optional. Changes the reason the status gave, for a code the documentation names. |
 | `retryAfterSeconds($response)` | Optional. A wait the format tells outside the `Retry-After` header. |
+| `retryAllowed($response, $reason)` | Optional. Returns `false` for a failed response that itself says "do not retry". The call then fails at once with its reason. Asked only for `rate_limited` and `unavailable`. |
 
 **The helpers you use:** `$this->url($path, $query)` builds an address; `$this->answer(...)` builds an answer;
 `$this->failure($reason, $detail, $providerCode)` builds an error to throw; `$this->setting($key)` reads a setting of
-the customer; `$this->preset` holds the preset, with its `adapterOptions`.
+the customer; `$this->option($name)` reads an adapter option of the preset, and `$this->option($name, $model)` reads
+it as the model overrides say it for that model; both give `null` when the option is not set.
+`$this->capabilitiesFromOptions($model, $formatDefaults)` reads the capability options of the preset and its model
+overrides over the defaults of your format: end `modelCapabilities()` with it. `$this->preset` holds the preset.
+
+**Optional: data that must go back unchanged.** Only for a format whose answers hold such data: give your adapter
+the constant `OPAQUE_FORMAT`, hand `$this->seal($text, $toolCalls, $content)` to `answer()` as its last argument, and
+send what `$this->unseal($message)` gives in place of the assistant message you would build; it gives `null` for a
+part that is not yours or a message that was changed. The example below has no such data and uses none of the three.
+
+- The content comes back as PHP arrays, not as the provider's bytes: an empty JSON object comes back as an empty
+  list, and a number is written again in another spelling. Anything that must come back byte for byte is sealed as
+  one string: the JSON text as you received it.
+- The content is not the provider's word when it comes back. It comes from wherever the caller keeps its messages,
+  and a part has no secret: whoever can write there can choose the content. Copy from it only the kinds of block and
+  the fields your format documents, and never take an address, a header or a model name from it.
+- Pick a mark no other adapter of your project uses; `a1` to `a9` are kept for the adapters of the library.
 
 **What you must not do:**
 
@@ -713,6 +1153,9 @@ the customer; `$this->preset` holds the preset, with its `adapterOptions`.
 - Do not keep state. The class is `readonly`; nothing may be remembered between two calls.
 - Do not write a constructor. It is final: a gateway is always built as the factory builds it.
 - Do not send the trace id of the request to the provider.
+- Do not set a header yourself that a field of the preset fills. The base adds it, and refuses a request that
+  already has it.
+- Do not name a method `option` or `capabilitiesFromOptions`: the base has them, and they are final.
 - Do not throw for an answer that does not match its schema, and do not check it yourself: the base does.
 - Mark every parameter that takes a response `#[\SensitiveParameter]` yourself. PHP does not inherit the attribute.
 
@@ -754,17 +1197,20 @@ final readonly class ExampleAdapter extends AbstractAdapter
 {
     protected function modelCapabilities(string $model): Capabilities
     {
-        // The same for every model of this format. A preset can say that its server lists no models.
-        return new Capabilities(
+        // The defaults of this format, the same for every model. The capability options of the preset and of its
+        // model overrides are read over them: a preset can say that its server lists no models ('model_listing'
+        // => 'none') or that one model cannot call tools. This example emulates nothing, so a preset for it must
+        // not say "emulated".
+        return $this->capabilitiesFromOptions($model, new Capabilities(
             toolCalling: Support::Native,
             forcedToolCall: Support::Native,
             parallelToolCalls: Support::Native,
             structuredOutput: Support::Native,
             toolsWithStructuredOutput: Support::Native,
             streaming: Support::Native,
-            modelListing: $this->listsModels() ? Support::Native : Support::None,
+            modelListing: Support::Native,
             contextLength: null,
-        );
+        ));
     }
 
     protected function completionRequest(Request $request, bool $stream): HttpRequest
@@ -942,7 +1388,13 @@ final readonly class ExampleAdapter extends AbstractAdapter
 
     private function listsModels(): bool
     {
-        return ($this->preset->adapterOptions['lists_models'] ?? true) === true;
+        // An option of the preset itself, the same for every model; null when the preset does not set it. The same
+        // words as capabilities() takes, and the same refusal for any other value: nothing is sent then.
+        return match ($this->option('model_listing')) {
+            null, 'native' => true,
+            'none' => false,
+            default => throw $this->failure(ErrorReason::NotConfigured, 'the option model_listing of the preset has a value outside its list'),
+        };
     }
 
     /**
@@ -1004,6 +1456,7 @@ final readonly class ExampleAdapter extends AbstractAdapter
             'calls' => FinishReason::ToolCalls,
             'cut' => FinishReason::Length,
             'blocked' => FinishReason::ContentFilter,
+            'refused' => FinishReason::Refusal,
             default => FinishReason::Other,
         };
     }
@@ -1021,6 +1474,16 @@ final readonly class ExampleAdapter extends AbstractAdapter
 A format without structured output of its own can emulate it: the adapter reports `structuredOutput` as `emulated`
 and adds the text of `(new Adapter\Shared\StructuredOutputEmulation())->instructions($request->responseFormat)` as
 the last of the system text. The base still checks the answer, so the caller sees the same structured result.
+
+A format with structured output of its own often takes only a part of JSON Schema. `Adapter\Shared\SchemaShape`
+answers what an adapter then needs to know about the caller's schema, with the adapter's own lists of keywords:
+`uses($schema, $keywords)` and `valuesOf($schema, $keyword)` to find what the server refuses,
+`without($schema, $keywords)` and `renamed($schema, $keyword, $as)` for a copy to send instead, and `isRecursive()`,
+`everyPropertyIsRequired()`, `everyObjectIsClosed()`, `everyObjectHasARequiredProperty()`, `depth()` and
+`propertyCount()` for the rules on its shape. A copy may be looser than the caller's schema, never tighter, and
+taking a keyword out does not always loosen: without `minimum`, a schema that had it under `not` refuses more than
+before. Ask `mayTighten($schema, $keywords)` first; when it says true, do not send the copy and use the emulation
+above for that request. The base checks the answer against the caller's schema in full, whatever was sent.
 
 **The preset for it, and a first call.** The preset names your adapter. The sample uses `Testing\FakeTransport`, so it
 sends nothing; with your own transport the same gateway reaches the real server. Runs today, after the class above.
@@ -1079,8 +1542,10 @@ echo $transport->requests()[0]->url;   // prints https://llm.example.test/api/ta
 ```
 
 **Prove it with the shared test set.** `Testing\ContractTestCase` holds what every gateway must do: a plain answer, a
-tool call, a garbled tool call, a structured answer that matches and one that does not, a stream, every error
-reason, retries and waits, the timeout, and no key in any output. An adapter passes it or it is not an adapter.
+tool call, a garbled tool call, a structured answer that matches and one that does not, a refusal and a withheld
+answer, a stream, every error reason, retries and waits, the timeout, data that must go back unchanged, and no key in
+any output. An adapter passes
+it or it is not an adapter.
 
 It is a PHPUnit test case, written for PHPUnit 12. The library does not require PHPUnit, so add it to your own
 project. Pest 4 brings PHPUnit 12 and runs the class as it is.
@@ -1107,15 +1572,25 @@ final readonly class ExampleFixtures implements AdapterFixtures
 {
     public function __construct(private string $directory) {}
 
-    public function answer(ContractFixture $fixture): ?HttpResponse
+    public function answer(ContractFixture $fixture): HttpResponse|NotApplicable|null
     {
-        return new HttpResponse(200, ['Content-Type' => 'application/json'], $this->read(self::file($fixture) . '.json'));
+        $file = self::file($fixture);
+        if ($file instanceof NotApplicable) {
+            return $file;
+        }
+
+        return new HttpResponse(200, ['Content-Type' => 'application/json'], $this->read($file . '.json'));
     }
 
-    public function stream(ContractFixture $fixture): ?array
+    public function stream(ContractFixture $fixture): array|NotApplicable|null
     {
+        $file = self::file($fixture);
+        if ($file instanceof NotApplicable) {
+            return $file;
+        }
+
         // One event per chunk: an event ends with a blank line.
-        $chunks = preg_split('/(?<=\n\n)/', $this->read(self::file($fixture) . '.sse'), -1, PREG_SPLIT_NO_EMPTY);
+        $chunks = preg_split('/(?<=\n\n)/', $this->read($file . '.sse'), -1, PREG_SPLIT_NO_EMPTY);
 
         return $chunks === false ? null : $chunks;
     }
@@ -1136,6 +1611,11 @@ final readonly class ExampleFixtures implements AdapterFixtures
         return [str_replace('{{echo}}', $echo, $this->read('error_in_stream.sse'))];
     }
 
+    public function retryForbidden(HttpResponse $failed): HttpResponse|NotApplicable
+    {
+        return new NotApplicable('no response of this format says that a request must not be tried again');
+    }
+
     public function requestTheFormatCannotCarry(Request $request): Request|NotApplicable
     {
         // This format writes the raw arguments of an earlier tool call as JSON, and these are not valid UTF-8.
@@ -1146,10 +1626,11 @@ final readonly class ExampleFixtures implements AdapterFixtures
         ]);
     }
 
-    private static function file(ContractFixture $fixture): string
+    private static function file(ContractFixture $fixture): string|NotApplicable
     {
         // No default: a case that is added later then fails here instead of being left out.
         return match ($fixture) {
+            ContractFixture::ToolCallWithOpaqueData => new NotApplicable('an answer of this format holds no data that must go back unchanged'),
             ContractFixture::PlainAnswer => 'plain_answer',
             ContractFixture::ToolCall, ContractFixture::ToolCallBesideResponseFormat => 'tool_call',
             ContractFixture::ParallelToolCalls => 'parallel_tool_calls',
@@ -1158,6 +1639,8 @@ final readonly class ExampleFixtures implements AdapterFixtures
             ContractFixture::StructuredInvalid => 'structured_invalid',
             ContractFixture::CutOff => 'cut_off',
             ContractFixture::EmptyAnswer => 'empty_answer',
+            ContractFixture::Refused => 'refused',
+            ContractFixture::Withheld => 'withheld',
         };
     }
 
@@ -1173,7 +1656,7 @@ final readonly class ExampleFixtures implements AdapterFixtures
 }
 ```
 
-The files this class reads: for each of the eight names above one `.json` (the whole response) and one `.sse` (the
+The files this class reads: for each of the ten names above one `.json` (the whole response) and one `.sse` (the
 same answer as a stream), and `failed.json`, `error_in_body.json` and `error_in_stream.sse`. What each must hold is
 written on the cases of `Testing\ContractFixture`. Three things are easy to miss:
 
@@ -1218,11 +1701,14 @@ sent, and no test takes real time.
 **Expect skipped tests.** A skip is the test set saying what it did not check, each with its reason. It is not a
 fault.
 
-- A gateway that can do everything and streams natively skips six: the five tests of a refusal (tools, a forced tool
-  call, a response format, tools with a response format, the model list), because there is nothing to refuse, and
-  the test of a gateway without streaming.
-- Fixtures can answer `NotApplicable` for an error inside a successful response or for a request the format cannot
-  carry. That scenario is then skipped with the reason they give. The example above has a fixture for both, so it skips only those six.
+- A gateway that can do everything and streams natively skips seven: the six tests of a refusal (tools, a forced
+  tool call, a response format, tools with a response format, a temperature, the model list), because there is
+  nothing to refuse, and the test of a gateway without streaming.
+- Fixtures can answer `NotApplicable` for an error inside a successful response, for a request the format cannot
+  carry, for a response that forbids a retry, for an answer with opaque data, for a refusal and for a withheld
+  answer. That scenario is then skipped with the reason they give. The example above has a fixture for the first
+  two, for a refusal and for a withheld answer. Its format has no opaque data and no way to forbid a retry: it skips
+  those seven, the five tests of an answer with opaque data and the one test of a response that forbids a retry.
 - A gateway that lacks a capability skips the scenarios that need it. Its refusal test runs in their place.
 - One more test is skipped when PHP leaves the arguments out of traces (`zend.exception_ignore_args`, which
   `php.ini-production` switches on). Set it to 0 for the tests, with
@@ -1230,7 +1716,9 @@ fault.
 
 A fixture that is missing for something your gateway says it can do is a failure, not a skip. A server with other
 capabilities is another test class with another preset. A server without sign-in overrides `signsIn()`; a server that
-reports no token counts overrides `reportsUsage()`.
+reports no token counts overrides `reportsUsage()`. An adapter that keeps data of its format with every answer that
+holds a tool call, also a plain one, overrides `keepsDataWithEveryToolCall()`: the set then allows an opaque part
+on such an answer.
 
 ## Using the fake in your own tests
 
@@ -1306,7 +1794,10 @@ The fake keeps the rules of a real gateway, so a test sees what production will 
 - A call with nothing scripted throws a `LogicException`. So does `models()` or `check()` when you gave it nothing.
 - A request with a response format gets a structured result: the text is checked against the schema exactly as a
   real gateway checks it. An answer with tool calls gets none.
-- An answer without text and without a tool call is a `provider_error`, unless it was cut off at the token limit.
+- The fake never makes an opaque part. One you script with `willAnswer()` reaches your code in `Answer::$opaque` and
+  in `toMessage()`, and `requests()` shows the parts your code sent in the next round.
+- An answer without text and without a tool call is returned when its finish reason is `length`, `refusal` or
+  `content_filter`, as a real gateway returns it. With any other finish reason it is a `provider_error`.
 - `willStream()` refuses, where you script it, a stream that breaks a rule: a text that is not the text of its
   deltas, a tool call that starts and never completes, usage reported twice.
 - The request of a stream is recorded when the stream is read, not when `stream()` is called.

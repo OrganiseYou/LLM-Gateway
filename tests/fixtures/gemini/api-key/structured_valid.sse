@@ -1,0 +1,4 @@
+data: {"candidates":[{"index":0,"content":{"role":"model","parts":[{"text":"{\"city\":\"Pa"}]}}],"usageMetadata":{"promptTokenCount":3,"thoughtsTokenCount":1,"totalTokenCount":4},"modelVersion":"example-generate-1","responseId":"resp-example01"}
+
+data: {"candidates":[{"index":0,"content":{"role":"model","parts":[{"text":"ris\",\"days\":3}"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":3,"candidatesTokenCount":1,"thoughtsTokenCount":1,"totalTokenCount":5},"modelVersion":"example-generate-1","responseId":"resp-example01"}
+

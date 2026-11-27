@@ -1,0 +1,2 @@
+data: {"error":{"code":500,"message":"{{echo}}","status":"INTERNAL","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"{{echo}}","domain":"googleapis.com","metadata":{}}]}}
+

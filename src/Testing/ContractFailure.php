@@ -19,6 +19,12 @@ enum ContractFailure: string
     case Status408 = 'status 408';
     case Status500 = 'status 500';
     case Status503 = 'status 503';
+
+    /**
+     * A failure that is tried again by its status, in a response that itself says it must not be: a header or a
+     * field the format documents. Only for a format that has such a sign (AdapterFixtures::retryForbidden()).
+     */
+    case RetryForbidden = 'status 503 in a response that says it must not be tried again';
     case Status302 = 'status 302';
     case Status400 = 'status 400';
     case Status404 = 'status 404';
@@ -35,7 +41,7 @@ enum ContractFailure: string
         return match ($this) {
             self::Status401, self::Status403 => ErrorReason::CredentialsRejected,
             self::Status429 => ErrorReason::RateLimited,
-            self::Status408, self::Status500, self::Status503, self::Status302, self::ConnectionFailed, self::Redirected => ErrorReason::Unavailable,
+            self::Status408, self::Status500, self::Status503, self::RetryForbidden, self::Status302, self::ConnectionFailed, self::Redirected => ErrorReason::Unavailable,
             self::Status400, self::Status404, self::Status422 => ErrorReason::Rejected,
             self::UnreadableBody, self::ErrorInBody => ErrorReason::ProviderError,
             self::TimedOut => ErrorReason::Timeout,
@@ -62,7 +68,7 @@ enum ContractFailure: string
             self::Status429 => 429,
             self::Status408 => 408,
             self::Status500 => 500,
-            self::Status503 => 503,
+            self::Status503, self::RetryForbidden => 503,
             self::Status302 => 302,
             self::Status400 => 400,
             self::Status404 => 404,

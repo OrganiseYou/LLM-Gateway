@@ -87,6 +87,9 @@ final readonly class AdapterSubject implements ContractSubject
         }
 
         $response = $this->fixtures->answer($fixture);
+        if ($response instanceof NotApplicable) {
+            throw new WrongUse('The fixtures say the answer "' . $fixture->value . '" does not apply: ask cannotGive() first.');
+        }
         if ($response === null) {
             throw new WrongUse('There is no fixture for the answer "' . $fixture->value . '", and the gateway says it can give it.');
         }
@@ -95,6 +98,23 @@ final readonly class AdapterSubject implements ContractSubject
         }
 
         $this->transport->willReturn(new HttpResponse($response->status, [...$response->headers, ...self::echoHeaders()], $response->body));
+    }
+
+    public function cannotGive(ContractFixture $fixture, bool $asStream): ?string
+    {
+        $whole = $this->fixtures->answer($fixture);
+        // A format has such an answer or it has not: the whole response and the stream must say the same.
+        if ($this->streamsNatively() && ($this->fixtures->stream($fixture) instanceof NotApplicable) !== ($whole instanceof NotApplicable)) {
+            throw new WrongUse('The fixtures say "' . $fixture->value . '" does not apply for the whole response or for the stream, and not for the other: answer() and stream() must agree.');
+        }
+        if (! $whole instanceof NotApplicable) {
+            return null;
+        }
+        if (! $fixture->mayNotApply()) {
+            throw new WrongUse('Only an answer with opaque data, a refusal and a withheld answer may not apply to a format: the fixture for "' . $fixture->value . '" must exist or be null.');
+        }
+
+        return $whole->reason;
     }
 
     public function fails(ContractFailure $failure, ?int $retryAfterSeconds = null, bool $asStream = false, ?string $echo = null): void
@@ -143,6 +163,15 @@ final readonly class AdapterSubject implements ContractSubject
             if ($response->status !== $status) {
                 throw new WrongUse('The fixture for a failed request must have the status it was asked for: ' . $status . '.');
             }
+            if ($failure === ContractFailure::RetryForbidden) {
+                $response = $this->fixtures->retryForbidden($response);
+                if ($response instanceof NotApplicable) {
+                    throw new WrongUse('The fixtures say a response that forbids a retry does not apply: ask cannotPlay() first.');
+                }
+                if ($response->status !== $status) {
+                    throw new WrongUse('The fixture for a response that forbids a retry must keep the status of the failed response: ' . $status . '.');
+                }
+            }
         }
         self::assertRepeats($response->body, $echo);
         $status = $response->status;
@@ -167,6 +196,11 @@ final readonly class AdapterSubject implements ContractSubject
 
     public function cannotPlay(ContractFailure $failure, bool $asStream): ?string
     {
+        if ($failure === ContractFailure::RetryForbidden) {
+            $fixture = $this->fixtures->retryForbidden($this->fixtures->failed((int) $failure->httpStatus(), 'words'));
+
+            return $fixture instanceof NotApplicable ? $fixture->reason : null;
+        }
         if ($failure !== ContractFailure::ErrorInBody) {
             return null;
         }
@@ -270,6 +304,9 @@ final readonly class AdapterSubject implements ContractSubject
     private function chunks(ContractFixture $fixture): array
     {
         $chunks = $this->fixtures->stream($fixture);
+        if ($chunks instanceof NotApplicable) {
+            throw new WrongUse('The fixtures say the stream of "' . $fixture->value . '" does not apply: ask cannotGive() first.');
+        }
         if ($chunks === null || $chunks === []) {
             throw new WrongUse('There is no fixture for the stream of "' . $fixture->value . '", and the gateway says it streams.');
         }

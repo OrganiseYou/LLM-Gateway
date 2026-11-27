@@ -600,3 +600,132 @@ describe('a fault in the code of an adapter or of a transport', function (): voi
         }
     });
 });
+
+describe('a response that says it must not be tried again', function (): void {
+    /**
+     * A failed response of the format with the sign of the format that it must not be tried again.
+     *
+     * @param array<string, string> $headers
+     */
+    function talkFailedForGood(int $status, bool|string $again = false, array $headers = []): HttpResponse
+    {
+        return new HttpResponse($status, $headers, Talk::json(['fault' => ['code' => 'spent', 'again' => $again]]));
+    }
+
+    it('is not tried again, keeps the reason of its status and tells no wait', function (int $status, ErrorReason $reason): void {
+        $clock = new FakeClock();
+        $observer = new RecordingObserver();
+        $transport = (new FakeTransport($clock))->willReturn(talkFailedForGood($status, false, ['Retry-After' => '7']))->willReturn(Talk::answered());
+
+        $error = Talk::errorOf(fn() => Talk::gateway($transport, $clock, new RetryPolicy([1.0, 1.0], 60.0), observer: $observer)->complete(Talk::request()));
+
+        expect($error->reason)->toBe($reason)
+            ->and($error->httpStatus)->toBe($status)
+            ->and($error->providerCode)->toBe('spent')
+            ->and($error->attempts)->toBe(1)
+            ->and($error->retryAfterSeconds)->toBeNull()
+            ->and($clock->sleeps())->toBe([])
+            ->and($transport->requests())->toHaveCount(1)
+            ->and($transport->remaining())->toBe(1)
+            ->and($observer->finished)->toHaveCount(1)
+            ->and($observer->finished[0]->outcome)->toBe(AttemptOutcome::HttpError)
+            ->and($observer->finished[0]->willRetry)->toBeFalse();
+    })->with([
+        'a 429' => [429, ErrorReason::RateLimited],
+        'a 503' => [503, ErrorReason::Unavailable],
+        'a 500' => [500, ErrorReason::Unavailable],
+        'a 408' => [408, ErrorReason::Unavailable],
+    ]);
+
+    it('ends a stream at once, as its one event, and the model list too', function (): void {
+        $clock = new FakeClock();
+        $transport = (new FakeTransport($clock))
+            ->willStream(503, [], Talk::json(['fault' => ['code' => 'spent', 'again' => false]]))
+            ->willReturn(talkFailedForGood(429));
+        $gateway = Talk::gateway($transport, $clock, new RetryPolicy([1.0], 60.0));
+
+        $events = Talk::events($gateway->stream(Talk::request()));
+        $listing = Talk::errorOf(fn() => $gateway->models(5.0));
+
+        expect($events)->toHaveCount(1)
+            ->and(Talk::failedIn($events)->error->reason)->toBe(ErrorReason::Unavailable)
+            ->and(Talk::failedIn($events)->error->attempts)->toBe(1)
+            ->and(Talk::failedIn($events)->error->retryAfterSeconds)->toBeNull()
+            ->and($listing->reason)->toBe(ErrorReason::RateLimited)
+            ->and($listing->attempts)->toBe(1)
+            ->and($clock->sleeps())->toBe([])
+            ->and($transport->requests())->toHaveCount(2);
+    });
+
+    it('is tried again when the response does not say so: the default of the hook is yes', function (bool|string|null $again): void {
+        $clock = new FakeClock();
+        $body = $again === null ? ['fault' => ['code' => 'busy']] : ['fault' => ['code' => 'busy', 'again' => $again]];
+        $transport = (new FakeTransport($clock))->willReturn(new HttpResponse(503, [], Talk::json($body)))->willReturn(Talk::answered());
+
+        $answer = Talk::gateway($transport, $clock, new RetryPolicy([1.0], 60.0))->complete(Talk::request());
+
+        expect($answer->attempts)->toBe(2)
+            ->and($clock->sleeps())->toBe([1.0]);
+    })->with([
+        'no sign' => [null],
+        'a sign that says yes' => [true],
+        'an exception in the hook counts as yes' => ['adapter_throws'],
+    ]);
+
+    it('is asked only for a failure that would be tried again', function (int $status, ErrorReason $reason): void {
+        // The hook of the test adapter fails with an error for this body: were it asked, the call would end in it.
+        $transport = (new FakeTransport())->willReturn(talkFailedForGood($status, 'adapter_breaks'));
+
+        $error = Talk::errorOf(fn() => Talk::gateway($transport, null, new RetryPolicy([0.0], 0.0))->complete(Talk::request()));
+
+        expect($error->reason)->toBe($reason)
+            ->and($error->attempts)->toBe(1);
+    })->with([
+        'rejected' => [400, ErrorReason::Rejected],
+        'credentials rejected' => [401, ErrorReason::CredentialsRejected],
+        'not found' => [404, ErrorReason::Rejected],
+        'a redirect' => [302, ErrorReason::Unavailable],
+    ]);
+
+    it('is asked with the reason the format refined, not the one of the status', function (): void {
+        // The test adapter reads the code "overloaded" as unavailable: a 400 that is then tried again, unless forbidden.
+        $clock = new FakeClock();
+        $transport = (new FakeTransport($clock))
+            ->willReturn(new HttpResponse(400, [], Talk::json(['fault' => ['code' => 'overloaded', 'again' => false]])))
+            ->willReturn(new HttpResponse(429, [], Talk::json(['fault' => ['code' => 'no_such_model', 'again' => 'adapter_breaks']])));
+        $gateway = Talk::gateway($transport, $clock, new RetryPolicy([1.0], 60.0));
+
+        $forbidden = Talk::errorOf(fn() => $gateway->complete(Talk::request()));
+        $refinedAway = Talk::errorOf(fn() => $gateway->complete(Talk::request()));
+
+        expect($forbidden->reason)->toBe(ErrorReason::Unavailable)
+            ->and($forbidden->attempts)->toBe(1)
+            ->and($refinedAway->reason)->toBe(ErrorReason::Rejected)
+            ->and($clock->sleeps())->toBe([]);
+    });
+
+    it('ends in a new error with a fixed text when the code of the hook fails with an error', function (): void {
+        $observer = new RecordingObserver();
+        $transport = (new FakeTransport())->willReturn(talkFailedForGood(503, 'adapter_breaks'))->willReturn(Talk::answered());
+
+        expect(fn() => Talk::gateway($transport, null, new RetryPolicy([0.0], 0.0), observer: $observer)->complete(Talk::request()))
+            ->toThrow(Error::class, 'The adapter failed with an error of class DivisionByZeroError, thrown in TalkAdapter.php on line')
+            ->and($transport->requests())->toHaveCount(1)
+            ->and($observer->finished)->toHaveCount(1)
+            ->and($observer->finished[0]->willRetry)->toBeFalse();
+    });
+
+    it('keeps the key out of the error when the response that forbids the retry repeats it', function (): void {
+        $transport = (new FakeTransport())->willReturn(new HttpResponse(
+            503,
+            ['X-Echo' => LEAK_MARKER],
+            Talk::json(['fault' => ['code' => LEAK_MARKER, 'again' => false, 'words' => LEAK_MARKER]]),
+        ));
+        $gateway = Talk::gateway($transport, null, new RetryPolicy([1.0], 60.0), new BearerKey(LEAK_MARKER));
+
+        $error = Talk::errorOf(fn() => $gateway->complete(Talk::request()));
+
+        expect($error->providerCode)->toBeNull()
+            ->and(stripos($error->getMessage() . json_encode($error) . $error->getTraceAsString() . var_export($error, true), 'MARKER'))->toBeFalse();
+    });
+});
