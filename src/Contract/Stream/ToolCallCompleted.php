@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace OrganiseYou\LlmGateway\Contract\Stream;
 
-use InvalidArgumentException;
+use OrganiseYou\LlmGateway\Contract\InvalidValue;
 use OrganiseYou\LlmGateway\Contract\ToolCall;
 
 /**
@@ -20,7 +20,7 @@ final readonly class ToolCallCompleted implements StreamEvent
         public ToolCall $toolCall,
     ) {
         if ($index < 0) {
-            throw new InvalidArgumentException('The index of a tool call must be 0 or more.');
+            throw new InvalidValue('The index of a tool call must be 0 or more.');
         }
     }
 }

@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use OrganiseYou\LlmGateway\Testing\ContractTestCase;
+use OrganiseYou\LlmGateway\Tests\Support\ReadmeSamples;
 use OrganiseYou\LlmGateway\Tests\Support\SourceCode;
 
 // LR-41 and the project guide: no real key, account name or customer text in the repository; fixtures are written
@@ -131,4 +132,18 @@ it('reports a long token only where it is asked to', function (): void {
         ->and(keyLookAlikes($token, true))->toBe(['line 1: a long token'])
         ->and(keyLookAlikes($hex, false))->toBe([])
         ->and(keyLookAlikes($hex, true))->toBe(['line 1: a long hexadecimal token']);
+});
+
+it('holds nothing in the form of a real key in any sample of the README', function (): void {
+    $samples = ReadmeSamples::all();
+    expect(count($samples))->toBeGreaterThan(10, 'the rule must have found the samples');
+
+    $findings = [];
+    foreach ($samples as $sample) {
+        foreach (keyLookAlikes(str_repeat("\n", $sample->line - 1) . $sample->code, false) as $finding) {
+            $findings[] = 'README.md ' . $finding;
+        }
+    }
+
+    expect($findings)->toBe([]);
 });

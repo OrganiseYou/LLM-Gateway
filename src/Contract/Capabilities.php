@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace OrganiseYou\LlmGateway\Contract;
 
-use InvalidArgumentException;
-
 /**
  * What a model can do through this gateway. A caller asks these; it never asks who answers.
  */
@@ -32,26 +30,26 @@ final readonly class Capabilities
         public ?int $contextLength,
     ) {
         if ($contextLength !== null && $contextLength < 1) {
-            throw new InvalidArgumentException('The context length must be 1 or more.');
+            throw new InvalidValue('The context length must be 1 or more.');
         }
         if ($toolCalling === Support::None && $forcedToolCall !== Support::None) {
-            throw new InvalidArgumentException('A forced tool call cannot be available without tool calling.');
+            throw new InvalidValue('A forced tool call cannot be available without tool calling.');
         }
         if ($toolCalling === Support::None && $parallelToolCalls !== Support::None) {
-            throw new InvalidArgumentException('Parallel tool calls cannot be available without tool calling.');
+            throw new InvalidValue('Parallel tool calls cannot be available without tool calling.');
         }
         if ($structuredOutput === Support::None && $toolsWithStructuredOutput !== Support::None) {
-            throw new InvalidArgumentException(
+            throw new InvalidValue(
                 'Tools with structured output cannot be available without structured output.',
             );
         }
         if ($streaming === Support::None) {
-            throw new InvalidArgumentException(
+            throw new InvalidValue(
                 'Streaming is native or emulated, never none: without it the whole answer comes as one event.',
             );
         }
         if ($modelListing === Support::Emulated) {
-            throw new InvalidArgumentException('Model listing is native or none; it cannot be emulated.');
+            throw new InvalidValue('Model listing is native or none; it cannot be emulated.');
         }
     }
 }

@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace OrganiseYou\LlmGateway\Testing;
 
 use Generator;
-use InvalidArgumentException;
 use LogicException;
 use OrganiseYou\LlmGateway\Adapter\Shared\StructuredAnswerChecker;
 use OrganiseYou\LlmGateway\Contract\Answer;
@@ -16,6 +15,7 @@ use OrganiseYou\LlmGateway\Contract\FinishReason;
 use OrganiseYou\LlmGateway\Contract\Gateway;
 use OrganiseYou\LlmGateway\Contract\GatewayException;
 use OrganiseYou\LlmGateway\Contract\Internal\Rules;
+use OrganiseYou\LlmGateway\Contract\InvalidValue;
 use OrganiseYou\LlmGateway\Contract\ModelInfo;
 use OrganiseYou\LlmGateway\Contract\Request;
 use OrganiseYou\LlmGateway\Contract\Stream\StreamEvent;
@@ -29,6 +29,7 @@ use OrganiseYou\LlmGateway\Contract\Support;
 use OrganiseYou\LlmGateway\Contract\ToolCall;
 use OrganiseYou\LlmGateway\Contract\ToolChoiceMode;
 use OrganiseYou\LlmGateway\Contract\Usage;
+use OrganiseYou\LlmGateway\Contract\WrongUse;
 
 /**
  * A gateway for the tests of an application: it sends nothing and answers what the test scripted.
@@ -54,7 +55,7 @@ use OrganiseYou\LlmGateway\Contract\Usage;
  */
 final class FakeGateway implements Gateway
 {
-    /** @var list<Answer|GatewayException|string|array{calls: list<ToolCall>}|array{events: list<StreamEvent>}> */
+    /** @var list<Answer|GatewayException|string|array{text: string, usage: Usage}|array{calls: list<ToolCall>}|array{events: list<StreamEvent>}> */
     private array $script = [];
 
     /** @var list<Request> */
@@ -79,14 +80,16 @@ final class FakeGateway implements Gateway
 
     /**
      * The next call gets an answer with this text that ended by itself, from the model of its request.
+     *
+     * @param Usage|null $usage the tokens the answer reports; null: none, as a provider that reports no usage
      */
-    public function willAnswerText(string $text): static
+    public function willAnswerText(string $text, ?Usage $usage = null): static
     {
         if (preg_match('//u', $text) !== 1) {
-            throw new InvalidArgumentException('The text of an answer must be valid UTF-8.');
+            throw new InvalidValue('The text of an answer must be valid UTF-8.');
         }
 
-        $this->script[] = $text;
+        $this->script[] = $usage === null ? $text : ['text' => $text, 'usage' => $usage];
 
         return $this;
     }
@@ -98,7 +101,7 @@ final class FakeGateway implements Gateway
     {
         $toolCalls = array_values($toolCalls);
         if ($toolCalls === []) {
-            throw new InvalidArgumentException('Give at least one tool call.');
+            throw new InvalidValue('Give at least one tool call.');
         }
         // The rules of an answer, checked where the script is written.
         self::answerOf('', $toolCalls, 'model', 'script');
@@ -198,7 +201,7 @@ final class FakeGateway implements Gateway
                 throw self::withTraceId($last->error, $request->traceId ?? $last->error->traceId);
             }
             if (! $last instanceof StreamFinished) {
-                throw new LogicException('A scripted stream has no last event.');
+                throw new WrongUse('A scripted stream has no last event.');
             }
             $entry = $last->answer;
         }
@@ -220,7 +223,7 @@ final class FakeGateway implements Gateway
             throw new GatewayException(ErrorReason::NotSupported, $traceId ?? self::newTraceId(), null, null, null, 0, 'the models cannot be listed here');
         }
         if ($this->models === null) {
-            throw new LogicException('The fake gateway was asked for its models and has none: give them with withModels().');
+            throw new WrongUse('The fake gateway was asked for its models and has none: give them with withModels().');
         }
 
         return $this->models;
@@ -250,7 +253,7 @@ final class FakeGateway implements Gateway
 
         $report = $this->report;
         if ($report === null) {
-            throw new LogicException('The fake gateway was asked for a connection check and has no report: give one with withConnectionReport().');
+            throw new WrongUse('The fake gateway was asked for a connection check and has no report: give one with withConnectionReport().');
         }
         if ($traceId === null || $traceId === $report->traceId) {
             return $report;
@@ -345,12 +348,12 @@ final class FakeGateway implements Gateway
     }
 
     /**
-     * @return Answer|GatewayException|string|array{calls: list<ToolCall>}|array{events: list<StreamEvent>}
+     * @return Answer|GatewayException|string|array{text: string, usage: Usage}|array{calls: list<ToolCall>}|array{events: list<StreamEvent>}
      */
     private function next(): Answer|GatewayException|string|array
     {
         if ($this->script === []) {
-            throw new LogicException(
+            throw new WrongUse(
                 'The fake gateway got request ' . count($this->requests) . ' and has no scripted answer left.',
             );
         }
@@ -388,7 +391,7 @@ final class FakeGateway implements Gateway
     /**
      * The scripted entry as an answer with the trace id of the call.
      *
-     * @param Answer|string|array{calls: list<ToolCall>}|array{events: list<StreamEvent>} $entry
+     * @param Answer|string|array{text: string, usage: Usage}|array{calls: list<ToolCall>}|array{events: list<StreamEvent>} $entry
      */
     private static function scripted(Answer|string|array $entry, Request $request): Answer
     {
@@ -398,8 +401,11 @@ final class FakeGateway implements Gateway
         if (is_string($entry)) {
             return self::answerOf($entry, [], $request->model, $request->traceId ?? self::newTraceId());
         }
+        if (isset($entry['text'], $entry['usage'])) {
+            return self::answerOf($entry['text'], [], $request->model, $request->traceId ?? self::newTraceId(), $entry['usage']);
+        }
         if (! isset($entry['calls'])) {
-            throw new LogicException('A scripted stream is no answer.');
+            throw new WrongUse('A scripted stream is no answer.');
         }
 
         return self::answerOf('', $entry['calls'], $request->model, $request->traceId ?? self::newTraceId());
@@ -408,7 +414,7 @@ final class FakeGateway implements Gateway
     /**
      * @param list<ToolCall> $toolCalls
      */
-    private static function answerOf(string $text, array $toolCalls, string $model, string $traceId): Answer
+    private static function answerOf(string $text, array $toolCalls, string $model, string $traceId, ?Usage $usage = null): Answer
     {
         return new Answer(
             $text,
@@ -416,7 +422,7 @@ final class FakeGateway implements Gateway
             $toolCalls,
             $toolCalls === [] ? FinishReason::Stop : FinishReason::ToolCalls,
             $model,
-            new Usage(null, null),
+            $usage ?? new Usage(null, null),
             0,
             1,
             $traceId,
@@ -490,7 +496,7 @@ final class FakeGateway implements Gateway
     {
         $last = $events === [] ? null : $events[count($events) - 1];
         if (! $last instanceof StreamFinished && ! $last instanceof StreamFailed) {
-            throw new InvalidArgumentException('A scripted stream must end with a StreamFinished or a StreamFailed.');
+            throw new InvalidValue('A scripted stream must end with a StreamFinished or a StreamFailed.');
         }
 
         $text = '';
@@ -501,23 +507,23 @@ final class FakeGateway implements Gateway
         $usageReports = 0;
         foreach (array_slice($events, 0, -1) as $event) {
             if ($event instanceof StreamFinished || $event instanceof StreamFailed) {
-                throw new InvalidArgumentException('A scripted stream has one last event, and nothing comes after it.');
+                throw new InvalidValue('A scripted stream has one last event, and nothing comes after it.');
             }
             if ($event instanceof TextDelta) {
                 $text .= $event->text;
             } elseif ($event instanceof ToolCallStarted) {
                 if (isset($seen[$event->index])) {
-                    throw new InvalidArgumentException('A tool call of a scripted stream starts twice with the same index.');
+                    throw new InvalidValue('A tool call of a scripted stream starts twice with the same index.');
                 }
                 $seen[$event->index] = true;
                 $open[$event->index] = $event;
             } elseif ($event instanceof ToolCallCompleted) {
                 $started = $open[$event->index] ?? null;
                 if ($started === null) {
-                    throw new InvalidArgumentException('A tool call of a scripted stream completes without a start with the same index.');
+                    throw new InvalidValue('A tool call of a scripted stream completes without a start with the same index.');
                 }
                 if ($started->id !== $event->toolCall->id || $started->name !== $event->toolCall->name) {
-                    throw new InvalidArgumentException('A tool call of a scripted stream completes with another id or another name than it started with.');
+                    throw new InvalidValue('A tool call of a scripted stream completes with another id or another name than it started with.');
                 }
                 unset($open[$event->index]);
                 $completed[] = $event->toolCall;
@@ -528,30 +534,30 @@ final class FakeGateway implements Gateway
         }
 
         if ($usageReports > 1) {
-            throw new InvalidArgumentException('A scripted stream reports usage at most once.');
+            throw new InvalidValue('A scripted stream reports usage at most once.');
         }
         // Two tool calls are the same call when their values are: a test may build the call twice.
         if ($last instanceof StreamFailed) {
             if ($last->textSoFar !== $text) {
-                throw new InvalidArgumentException('The text so far of a scripted failure must be the text of the text deltas before it.');
+                throw new InvalidValue('The text so far of a scripted failure must be the text of the text deltas before it.');
             }
             if ($last->toolCallsSoFar != $completed) {
-                throw new InvalidArgumentException('The tool calls so far of a scripted failure must be the calls that completed before it, in that order.');
+                throw new InvalidValue('The tool calls so far of a scripted failure must be the calls that completed before it, in that order.');
             }
 
             return;
         }
         if ($open !== []) {
-            throw new InvalidArgumentException('A tool call of a scripted stream starts and never completes.');
+            throw new InvalidValue('A tool call of a scripted stream starts and never completes.');
         }
         if ($last->answer->text !== $text) {
-            throw new InvalidArgumentException('The text of the answer of a scripted stream must be the text of its text deltas.');
+            throw new InvalidValue('The text of the answer of a scripted stream must be the text of its text deltas.');
         }
         if ($last->answer->toolCalls != $completed) {
-            throw new InvalidArgumentException('The tool calls of the answer of a scripted stream must be the calls that completed, in that order.');
+            throw new InvalidValue('The tool calls of the answer of a scripted stream must be the calls that completed, in that order.');
         }
         if ($usage !== null && $usage != $last->answer->usage) {
-            throw new InvalidArgumentException('The usage a scripted stream reports must be the usage of its answer.');
+            throw new InvalidValue('The usage a scripted stream reports must be the usage of its answer.');
         }
     }
 
@@ -563,21 +569,21 @@ final class FakeGateway implements Gateway
     private static function assertTimeout(float $timeoutSeconds): void
     {
         if (! Rules::isTimeout($timeoutSeconds)) {
-            throw new InvalidArgumentException('The timeout must be a finite number of seconds above 0.');
+            throw new InvalidValue('The timeout must be a finite number of seconds above 0.');
         }
     }
 
     private static function assertTraceId(?string $traceId): void
     {
         if ($traceId !== null && ! Rules::isTraceId($traceId)) {
-            throw new InvalidArgumentException('The trace id must match ^[A-Za-z0-9_.:-]{1,128}$.');
+            throw new InvalidValue('The trace id must match ^[A-Za-z0-9_.:-]{1,128}$.');
         }
     }
 
     private static function assertModel(string $model): void
     {
         if (! Rules::isModelName($model)) {
-            throw new InvalidArgumentException('The model must not be empty and must not hold a control character.');
+            throw new InvalidValue('The model must not be empty and must not hold a control character.');
         }
     }
 }

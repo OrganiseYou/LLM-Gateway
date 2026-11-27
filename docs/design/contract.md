@@ -499,6 +499,72 @@ unknown model), never invent a ninth reason.
 | The request needs a capability that is `None` | `not_supported` | no request sent |
 | A value outside what the format can carry | `rejected` | no request sent |
 
+### 7.4 What the library throws: `InvalidValue`, `WrongUse`, `ForeignFault`
+
+Decision G63, which widens G35. Meets LR-26.
+
+Why they exist:
+
+- PHP stores the arguments of every call on the stack in the trace of an exception or an error. Where the library
+  throws, a request, a response or a key is among them.
+- A parameter marked `#[\SensitiveParameter]` is hidden from the printed forms of a trace only. The trace object holds
+  a `\SensitiveParameterValue` in its place, and `getTrace()[n]['args'][0]->getValue()` gives the value back.
+- PHP has no switch for one exception. It has only the setting `zend.exception_ignore_args` for the whole process.
+  That setting is the host's; the library never changes it.
+
+So the library throws only classes of its own, and each takes the arguments out of its own trace in its constructor.
+File, line, class and function stay: the trace says where, never with what.
+
+The three classes, all `final class` in `OrganiseYou\LlmGateway\Contract`:
+
+| Class | Extends | The library throws it for |
+|---|---|---|
+| `InvalidValue` | `\InvalidArgumentException` | A value it refuses: every "throws" rule of a constructor or an argument in this document. |
+| `WrongUse` | `\LogicException` | A use of the library it cannot serve: a call in the wrong state, a fake without a script, a fixture that is missing, a secret that is serialized, a request of an adapter that leaves the base URL (G44). |
+| `ForeignFault` | `\Error` | The replacement of a fault (an `\Error`) in code that is not the library's: the HTTP client or its message classes (G40), an adapter written outside the library (G44), the token supplier (G42), the JSON Schema validator (G50). |
+
+Each has the same constructor and no property of its own:
+
+```php
+public function __construct(string $message);
+```
+
+- `$message` is a text the library wrote. It never holds a value the library was given. For a `ForeignFault` it names
+  at most the class of what was thrown, and for an adapter or the validator also the file name without its folder and
+  the line.
+- There is no `$previous` and no code. What foreign code threw is never chained and its message is never copied, as
+  for `GatewayException` (7.2 rule 2).
+- A host catches them as the PHP class each extends: `catch (\InvalidArgumentException)` and
+  `catch (\LogicException)` keep working. `InvalidValue` is also a `\LogicException`, as its parent is.
+- `ForeignFault` is an `\Error` on purpose. It is a fault in code, not a failure of a provider or a connection: no
+  `catch (\Exception)` takes it, nothing retries it and nothing maps it to one of the eight reasons of 7.1.
+
+The rule: nothing in `src/` builds an exception or an error of PHP directly (`new \InvalidArgumentException`,
+`new \LogicException`, `new \Error`, or any other). A throw site is plain: `throw new InvalidValue('…');`.
+
+- Every other class of `src/` that can be thrown takes the arguments out of its own trace the same way:
+  `GatewayException` (7.2), `Transport\TransportException` (12.4, also one a host's own transport builds),
+  `Contract\Credentials\TokenSupplierFailed` (G42) and the two internal exceptions of the schema loop guard (G52).
+- The write on the trace is in one place: `Contract\Internal\Traces::withoutArguments(\Throwable $thrown): \Throwable`.
+  It is `@internal`, has no state and stands next to `Internal\Rules` (G48). Only the constructors of the classes
+  above call it, on `$this`, as their last line. A host must not call it.
+- `tests/Architecture/TraceArgumentsTest.php` holds the rule. It lists the one place that builds a PHP exception on
+  purpose (a probe in the shared test set, never thrown) and every class that extends none of the three, with the
+  reason.
+
+Not covered:
+
+- A `\TypeError` that PHP raises at a typed parameter. PHP builds it before the constructor or method runs, so no
+  class of the library is involved and its trace holds the arguments of that call.
+- An exception a host chains itself: the `$previous` it gives to a `TransportException` is the host's own and is left
+  as it is.
+- What code outside the library throws and the library lets pass (G44, G45): an exception of a host's transport that
+  is no `TransportException`, or of the host's error handler.
+
+Reading the rest of this document, and `docs/design/adapters.md`: wherever it says the library throws
+`InvalidArgumentException`, `LogicException` or `\Error`, it throws the class above that extends it. The class tables
+of 1.1 and 1.2 do not list the three or `Internal\Traces`; they belong to `Contract`.
+
 ## 8. Retries, time and trace ids (LG-07)
 
 ### 8.1 `RetryPolicy` (value, `Contract`)
@@ -985,7 +1051,7 @@ Architecture tests must list `src/Adapter/Shared` next to `src/Contract`, `src/L
 | LR-13 | `Message::$parts` is `list<ContentPart>`; `TextPart` is the only part now (3.2, 3.3). No image, audio, embedding or speech class exists. |
 | LR-24 | `NoCredentials`, `BearerKey`, `HeaderKey`, `BearerToken` with `TokenSupplier`, plus `GatewayConfig::$baseUrl`, `Request::$model` and preset fields; the table of 11.2. |
 | LR-25 | Credentials are an argument of `GatewayFactory::create()` and live as long as the gateway object; `TokenSupplier::token()` is asked per attempt and nothing is kept (11.2). No class reads the environment or a file. |
-| LR-26 | `Secret` (11.1); `#[\SensitiveParameter]`; `HttpRequest::$secretHeaders` and `toArray()` (12.2); `GatewayException` rules (7.2); `Credentials::secrets()` tells the host what to redact (11.2). |
+| LR-26 | `Secret` (11.1); `#[\SensitiveParameter]`; `HttpRequest::$secretHeaders` and `toArray()` (12.2); `GatewayException` rules (7.2); `InvalidValue`, `WrongUse`, `ForeignFault` and every other class the library throws keep no argument of any call in their trace (7.4, G63); `Credentials::secrets()` tells the host what to redact (11.2). |
 | LR-27 | `Gateway::check()`, `ConnectionReport`, `CheckResult`, `CheckStatus` (section 9). |
 | LR-28 | `Transport` is the only way out; `AbstractAdapter` gets it from `GatewayFactory::create()` (sections 12, 13). |
 | LR-29 | The rules of `Transport` (12.1); `Psr18Transport` and `TransportFailure::Redirected` (12.5); 3xx is `unavailable` and not retried (7.3); `AbstractAdapter::url()` and `GatewayFactory::resolveBaseUrl()` (13.3, 13.4). |

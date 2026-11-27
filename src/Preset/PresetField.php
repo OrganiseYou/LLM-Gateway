@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace OrganiseYou\LlmGateway\Preset;
 
-use InvalidArgumentException;
+use OrganiseYou\LlmGateway\Contract\InvalidValue;
 
 /**
  * One setting the customer fills in for a preset. Never a secret: a secret is a credential.
@@ -24,13 +24,13 @@ final readonly class PresetField
         public ?string $pattern = null,
     ) {
         if (preg_match('/^[a-z][a-z0-9_]{0,31}$/D', $key) !== 1) {
-            throw new InvalidArgumentException('The key of a field must match ^[a-z][a-z0-9_]{0,31}$.');
+            throw new InvalidValue('The key of a field must match ^[a-z][a-z0-9_]{0,31}$.');
         }
         if ($label === '') {
-            throw new InvalidArgumentException('The label of a field must not be empty.');
+            throw new InvalidValue('The label of a field must not be empty.');
         }
         if ($pattern !== null && ($pattern === '' || ! self::compiles($pattern))) {
-            throw new InvalidArgumentException(
+            throw new InvalidValue(
                 'The pattern of a field must be a regular expression without delimiters that can be compiled.',
             );
         }

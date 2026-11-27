@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use OrganiseYou\LlmGateway\Tests\Support\ReadmeSample;
+use OrganiseYou\LlmGateway\Tests\Support\ReadmeSamples;
 use OrganiseYou\LlmGateway\Tests\Support\SourceCode;
 
 // LR-28: the library opens no network connection by itself. Every request goes through the transport the host
@@ -372,6 +374,28 @@ function testFilesThatReadFilesOfTheRepository(): array
         'Architecture/' => 'the architecture rules read the source files, composer.json and their sample files',
         'Support/SourceCode.php' => 'lists the source files for the architecture rules',
         'Support/TalkFixtures.php' => 'reads the hand-written fixtures under tests/fixtures/talk',
+        'Support/ReadmeSamples.php' => 'reads README.md, whose samples the tests under tests/Readme execute',
+    ];
+}
+
+/**
+ * The samples of the README that the suite executes and that may do one thing the search finds, and why. A sample
+ * is named by a line of its code, because its place in the README moves. Each entry covers that one finding in
+ * that one sample.
+ *
+ * @return array<string, array{string, string}> a line of the sample => [the finding, why]
+ */
+function readmeSamplesThatMayDoWhatTheSearchFinds(): array
+{
+    return [
+        'final readonly class ExampleFixtures implements AdapterFixtures' => [
+            'file_get_contents()',
+            'the fixtures class a reader copies reads the hand-written fixture files from the folder it is given; the suite gives it tests/fixtures/talk',
+        ],
+        'use GuzzleHttp\Client;' => [
+            'new Client',
+            'shows how a host sets up its own HTTP client; the sample builds the client and the transport and sends nothing',
+        ],
     ];
 }
 
@@ -396,4 +420,116 @@ it('opens no connection anywhere in tests: every test uses the fake transport an
     }
 
     expect($findings)->toBe([]);
+});
+
+// The samples of the README that are marked as running are executed by the suite (tests/Readme), from the text of
+// the README and not from a file under tests. They are code the suite runs all the same: the same search, on them.
+
+/**
+ * The calls in a piece of PHP code on an HTTP client it built itself. Building a client opens nothing; a method of
+ * it (`$client->get(…)`, `$client->sendRequest(…)`) does.
+ *
+ * @return list<string> one line per finding, with the line number in the code
+ */
+function callsOnAnHttpClientItBuilt(string $code): array
+{
+    $tokens = SourceCode::tokens($code);
+
+    $clients = [];
+    foreach ($tokens as $index => $token) {
+        $class = $tokens[$index + 3] ?? null;
+        if ($token->is(T_VARIABLE) && ($tokens[$index + 1] ?? null)?->text === '=' && ($tokens[$index + 2] ?? null)?->is(T_NEW) === true
+            && $class !== null && $class->is([T_STRING, T_NAME_QUALIFIED, T_NAME_FULLY_QUALIFIED])
+            && preg_match('/client$/', SourceCode::shortName($class->text)) === 1) {
+            $clients[$token->text] = true;
+        }
+    }
+
+    $found = [];
+    foreach ($tokens as $index => $token) {
+        $next = $tokens[$index + 1] ?? null;
+        $new = $token->is(T_NEW) && $next !== null && $next->is([T_STRING, T_NAME_QUALIFIED, T_NAME_FULLY_QUALIFIED]) && preg_match('/client$/', SourceCode::shortName($next->text)) === 1;
+        // `(new Client())->get(…)`: the call follows the closing parenthesis of the arguments.
+        $callee = $tokens[$index - 2] ?? null;
+        $inArguments = $callee !== null && $callee->is([T_STRING, T_NAME_QUALIFIED, T_NAME_FULLY_QUALIFIED, T_VARIABLE]);
+        if ($new && ($tokens[$index - 1] ?? null)?->text === '(' && ! $inArguments) {
+            $found[] = 'line ' . $token->line . ': a call on a new HTTP client';
+        }
+        if ($token->is(T_VARIABLE) && isset($clients[$token->text]) && $next !== null && $next->is([T_OBJECT_OPERATOR, T_NULLSAFE_OBJECT_OPERATOR])) {
+            $found[] = 'line ' . $token->line . ': a call on the HTTP client ' . $token->text;
+        }
+    }
+
+    return $found;
+}
+
+it('calls no method of an HTTP client in a sample of the README that the suite executes', function (): void {
+    $findings = [];
+    $built = 0;
+    foreach (ReadmeSamples::all() as $sample) {
+        if ($sample->marker !== ReadmeSample::RUNS) {
+            continue;
+        }
+        $built += (int) preg_match_all('/\bnew Client\(/', $sample->code);
+        foreach (callsOnAnHttpClientItBuilt("<?php\n" . str_repeat("\n", $sample->line - 2) . $sample->code) as $finding) {
+            $findings[] = 'README.md ' . $finding;
+        }
+    }
+
+    expect($built)->toBeGreaterThan(0, 'the rule must have found the sample that builds a client')
+        ->and($findings)->toBe([]);
+});
+
+it('catches a call on an HTTP client a sample built', function (string $code, string $finding): void {
+    expect(callsOnAnHttpClientItBuilt("<?php\n" . $code))->toBe(['line 2: ' . $finding]);
+})->with([
+    'a request' => ['$client = new Client(["stream" => true]); $client->get("https://llm.example.test/");', 'a call on the HTTP client $client'],
+    'the PSR-18 method' => ['$http = new \\GuzzleHttp\\Client(); $response = $http->sendRequest($request);', 'a call on the HTTP client $http'],
+    'a null-safe call' => ['$client = new HttpClient(); $client?->request("GET", $url);', 'a call on the HTTP client $client'],
+    'a call on the new object itself' => ['$response = (new Client())->get($url);', 'a call on a new HTTP client'],
+]);
+
+it('does not flag a client that is only built and handed on', function (string $code): void {
+    expect(callsOnAnHttpClientItBuilt("<?php\n" . $code))->toBe([]);
+})->with([
+    'the sample of the README' => ['$client = new Client(["stream" => true]); $factory = new HttpFactory(); $transport = new Psr18Transport($client, $factory, $factory);'],
+    'a call on something else' => ['$client = new Client(); $transport->send($request); $gateway->complete($other);'],
+    'a client built as an argument' => ['$transport = new Psr18Transport(new Client(), $factory, $factory);'],
+]);
+
+it('opens no connection in a sample of the README that the suite executes, but for the listed places', function (): void {
+    $meant = readmeSamplesThatMayDoWhatTheSearchFinds();
+    $used = [];
+    $findings = [];
+    $searched = 0;
+
+    foreach (ReadmeSamples::all() as $sample) {
+        if ($sample->marker !== ReadmeSample::RUNS) {
+            continue;
+        }
+        $searched++;
+        foreach (connectionOpeners("<?php\n" . str_repeat("\n", $sample->line - 2) . $sample->code) as $finding) {
+            $allowed = false;
+            foreach ($meant as $line => [$what]) {
+                if (str_contains($sample->code, $line) && str_ends_with($finding, ': ' . $what) && ! isset($used[$line])) {
+                    $used[$line] = true;
+                    $allowed = true;
+                }
+            }
+            if (! $allowed) {
+                $findings[] = 'README.md ' . $finding;
+            }
+        }
+    }
+
+    expect($searched)->toBeGreaterThan(10, 'the rule must have found the samples')
+        ->and($findings)->toBe([])
+        ->and(array_values(array_diff(array_keys($meant), array_keys($used))))->toBe([], 'every listed place must still be needed');
+});
+
+it('gives a reason for every listed place of a sample', function (): void {
+    foreach (readmeSamplesThatMayDoWhatTheSearchFinds() as $line => [$what, $why]) {
+        expect($what)->not->toBe('')
+            ->and(strlen($why))->toBeGreaterThan(30, 'the entry for "' . $line . '" needs a reason');
+    }
 });

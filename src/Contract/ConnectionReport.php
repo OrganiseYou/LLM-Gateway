@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace OrganiseYou\LlmGateway\Contract;
 
-use InvalidArgumentException;
 use OrganiseYou\LlmGateway\Contract\Internal\Rules;
 
 /**
@@ -21,7 +20,7 @@ final readonly class ConnectionReport
         public string $traceId,
     ) {
         if (! Rules::isTraceId($traceId)) {
-            throw new InvalidArgumentException('The trace id must match ^[A-Za-z0-9_.:-]{1,128}$.');
+            throw new InvalidValue('The trace id must match ^[A-Za-z0-9_.:-]{1,128}$.');
         }
     }
 

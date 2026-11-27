@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace OrganiseYou\LlmGateway\Contract;
 
-use InvalidArgumentException;
-
 /**
  * Whether the model may, must not or must call a tool, and which one.
  */
@@ -17,13 +15,13 @@ final readonly class ToolChoice
     ) {
         if ($mode === ToolChoiceMode::Tool) {
             if ($toolName === null || $toolName === '') {
-                throw new InvalidArgumentException('The tool choice "tool" needs the name of the tool.');
+                throw new InvalidValue('The tool choice "tool" needs the name of the tool.');
             }
 
             return;
         }
         if ($toolName !== null) {
-            throw new InvalidArgumentException('Only the tool choice "tool" takes a tool name.');
+            throw new InvalidValue('Only the tool choice "tool" takes a tool name.');
         }
     }
 

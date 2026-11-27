@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use OrganiseYou\LlmGateway\Tests\Support\ReadmeSample;
+use OrganiseYou\LlmGateway\Tests\Support\ReadmeSamples;
 use OrganiseYou\LlmGateway\Tests\Support\SourceCode;
 
 // LR-01 and LR-25: the library keeps nothing between two calls and reads nothing the host did not hand over. No
@@ -380,3 +382,24 @@ it('knows the ways to the environment that the rule for tests looks for', functi
     'the arguments of the command line' => ['$key = $argv[1];'],
     'a line typed by a person' => ['$key = readline("Key: ");'],
 ]);
+
+it('reads no environment in a sample of the README that the suite executes', function (): void {
+    $ways = waysToTheEnvironment();
+    $findings = [];
+    $searched = 0;
+
+    foreach (ReadmeSamples::all() as $sample) {
+        if ($sample->marker !== ReadmeSample::RUNS) {
+            continue;
+        }
+        $searched++;
+        foreach (environmentAndStateUses("<?php\n" . str_repeat("\n", $sample->line - 2) . $sample->code) as $finding) {
+            if (preg_match($ways, $finding) === 1) {
+                $findings[] = 'README.md ' . $finding;
+            }
+        }
+    }
+
+    expect($searched)->toBeGreaterThan(10, 'the rule must have found the samples')
+        ->and($findings)->toBe([]);
+});

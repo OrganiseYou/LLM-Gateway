@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace OrganiseYou\LlmGateway\Contract;
 
-use InvalidArgumentException;
-
 /**
  * One reason a structured answer is unusable.
  */
@@ -20,13 +18,13 @@ final readonly class StructuredIssue
         public ?string $path,
     ) {
         if ($message === '') {
-            throw new InvalidArgumentException('A structured issue needs a message.');
+            throw new InvalidValue('A structured issue needs a message.');
         }
         if ($kind === StructuredIssueKind::SchemaMismatch && $path === null) {
-            throw new InvalidArgumentException('A schema mismatch needs a path.');
+            throw new InvalidValue('A schema mismatch needs a path.');
         }
         if ($kind !== StructuredIssueKind::SchemaMismatch && $path !== null) {
-            throw new InvalidArgumentException('Only a schema mismatch takes a path.');
+            throw new InvalidValue('Only a schema mismatch takes a path.');
         }
     }
 

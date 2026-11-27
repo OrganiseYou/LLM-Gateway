@@ -5,8 +5,9 @@ declare(strict_types=1);
 namespace OrganiseYou\LlmGateway\Testing;
 
 use Generator;
-use InvalidArgumentException;
 use LogicException;
+use OrganiseYou\LlmGateway\Contract\InvalidValue;
+use OrganiseYou\LlmGateway\Contract\WrongUse;
 use OrganiseYou\LlmGateway\Transport\HttpRequest;
 use OrganiseYou\LlmGateway\Transport\HttpResponse;
 use OrganiseYou\LlmGateway\Transport\HttpStreamResponse;
@@ -67,10 +68,10 @@ final class FakeTransport implements Transport
     {
         $last = array_key_last($this->script);
         if ($last === null || $this->script[$last]['failure'] !== null || $this->script[$last]['breakAfter'] !== null) {
-            throw new LogicException('Script a stream with willStream() first: there is no stream to break.');
+            throw new WrongUse('Script a stream with willStream() first: there is no stream to break.');
         }
         if ($chunks < 0 || $chunks > count($this->script[$last]['chunks'])) {
-            throw new InvalidArgumentException('The stream cannot break after more chunks than it has, or fewer than 0.');
+            throw new InvalidValue('The stream cannot break after more chunks than it has, or fewer than 0.');
         }
 
         $this->script[$last]['failure'] = $failure;
@@ -93,10 +94,10 @@ final class FakeTransport implements Transport
     public function willDelay(float $seconds): static
     {
         if ($this->clock === null) {
-            throw new LogicException('Give the fake transport a fake clock to script a delay.');
+            throw new WrongUse('Give the fake transport a fake clock to script a delay.');
         }
         if (! is_finite($seconds) || $seconds < 0.0) {
-            throw new InvalidArgumentException('The delay must be a finite number of seconds of 0 or more.');
+            throw new InvalidValue('The delay must be a finite number of seconds of 0 or more.');
         }
 
         $this->pendingDelay += $seconds;
@@ -182,7 +183,7 @@ final class FakeTransport implements Transport
 
         $answer = array_shift($this->script);
         if ($answer === null) {
-            throw new LogicException(
+            throw new WrongUse(
                 'The fake transport got request ' . count($this->requests) . ' and has no scripted answer left.',
             );
         }

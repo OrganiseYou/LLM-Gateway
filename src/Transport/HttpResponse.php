@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace OrganiseYou\LlmGateway\Transport;
 
-use InvalidArgumentException;
+use OrganiseYou\LlmGateway\Contract\InvalidValue;
 use SensitiveParameter;
 
 /**
@@ -27,7 +27,7 @@ final readonly class HttpResponse
         public string $body = '',
     ) {
         if ($status < 100 || $status > 599) {
-            throw new InvalidArgumentException('The HTTP status must be between 100 and 599.');
+            throw new InvalidValue('The HTTP status must be between 100 and 599.');
         }
 
         $this->headers = self::normalise($headers);
@@ -64,12 +64,12 @@ final readonly class HttpResponse
             // PHP turns a header name of digits only into an integer key.
             $name = strtolower((string) $name);
             if ($name === '') {
-                throw new InvalidArgumentException('A header name must not be empty.');
+                throw new InvalidValue('A header name must not be empty.');
             }
 
             foreach (is_array($value) ? $value : [$value] as $single) {
                 if (! is_string($single)) {
-                    throw new InvalidArgumentException('A header value must be a string or a list of strings.');
+                    throw new InvalidValue('A header value must be a string or a list of strings.');
                 }
                 $normalised[$name] = isset($normalised[$name]) ? $normalised[$name] . ', ' . $single : $single;
             }

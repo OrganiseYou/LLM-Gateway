@@ -331,8 +331,12 @@ describe('GatewayException', function (): void {
                     'var_dump of the frames' => $dumped,
                 ];
 
+                // Not even wrapped: a SensitiveParameterValue gives its value to whoever walks the trace.
                 expect($ownFrames[0]['class'] ?? null)->toBe(GatewayException::class)
-                    ->and($forms['print_r of the frames'])->toContain('SensitiveParameterValue');
+                    ->and($forms['print_r of the frames'])->not->toContain('SensitiveParameterValue');
+                foreach ($refused->getTrace() as $frame) {
+                    expect($frame)->not->toHaveKey('args');
+                }
 
                 foreach ($forms as $form => $text) {
                     expect(stripos($text, LEAK_MARKER))->toBeFalse($form . ' holds the marker')

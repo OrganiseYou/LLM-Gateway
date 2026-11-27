@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace OrganiseYou\LlmGateway\Testing;
 
-use LogicException;
 use OrganiseYou\LlmGateway\Contract\Credentials\Credentials;
 use OrganiseYou\LlmGateway\Contract\Gateway;
 use OrganiseYou\LlmGateway\Contract\Request;
 use OrganiseYou\LlmGateway\Contract\RetryPolicy;
 use OrganiseYou\LlmGateway\Contract\Support;
+use OrganiseYou\LlmGateway\Contract\WrongUse;
 use OrganiseYou\LlmGateway\GatewayConfig;
 use OrganiseYou\LlmGateway\GatewayFactory;
 use OrganiseYou\LlmGateway\Preset\Preset;
@@ -88,10 +88,10 @@ final readonly class AdapterSubject implements ContractSubject
 
         $response = $this->fixtures->answer($fixture);
         if ($response === null) {
-            throw new LogicException('There is no fixture for the answer "' . $fixture->value . '", and the gateway says it can give it.');
+            throw new WrongUse('There is no fixture for the answer "' . $fixture->value . '", and the gateway says it can give it.');
         }
         if ($response->status < 200 || $response->status > 299) {
-            throw new LogicException('The fixture for the answer "' . $fixture->value . '" must be a successful response.');
+            throw new WrongUse('The fixture for the answer "' . $fixture->value . '" must be a successful response.');
         }
 
         $this->transport->willReturn(new HttpResponse($response->status, [...$response->headers, ...self::echoHeaders()], $response->body));
@@ -122,7 +122,7 @@ final readonly class AdapterSubject implements ContractSubject
         if ($failure === ContractFailure::ErrorInBody && $asStream && $this->streamsNatively()) {
             $chunks = $this->fixtures->errorInStream($echo);
             if ($chunks instanceof NotApplicable) {
-                throw new LogicException('The fixtures say an error inside a stream does not apply: ask cannotPlay() first.');
+                throw new WrongUse('The fixtures say an error inside a stream does not apply: ask cannotPlay() first.');
             }
             self::assertRepeats(implode('', $chunks), $echo);
             $this->transport->willStream(200, $headers, ': ' . ContractTestCase::MARKER_KEY . "\n\n", ...$chunks);
@@ -133,15 +133,15 @@ final readonly class AdapterSubject implements ContractSubject
         if ($failure === ContractFailure::ErrorInBody) {
             $response = $this->fixtures->errorInBody($echo);
             if ($response instanceof NotApplicable) {
-                throw new LogicException('The fixtures say an error inside a successful response does not apply: ask cannotPlay() first.');
+                throw new WrongUse('The fixtures say an error inside a successful response does not apply: ask cannotPlay() first.');
             }
             if ($response->status !== 200) {
-                throw new LogicException('The fixture for an error inside a successful response must have the status 200.');
+                throw new WrongUse('The fixture for an error inside a successful response must have the status 200.');
             }
         } else {
             $response = $this->fixtures->failed($status, $echo);
             if ($response->status !== $status) {
-                throw new LogicException('The fixture for a failed request must have the status it was asked for: ' . $status . '.');
+                throw new WrongUse('The fixture for a failed request must have the status it was asked for: ' . $status . '.');
             }
         }
         self::assertRepeats($response->body, $echo);
@@ -153,12 +153,12 @@ final readonly class AdapterSubject implements ContractSubject
     public function breaksAfterTheFirstText(): void
     {
         if (! $this->streamsNatively()) {
-            throw new LogicException('Only a stream that arrives in pieces can break half-way.');
+            throw new WrongUse('Only a stream that arrives in pieces can break half-way.');
         }
 
         $chunks = $this->chunks(ContractFixture::PlainAnswer);
         if (count($chunks) < 3) {
-            throw new LogicException('The fixture for the stream of the plain answer must have two chunks or more, with the first piece of text in the first.');
+            throw new WrongUse('The fixture for the stream of the plain answer must have two chunks or more, with the first piece of text in the first.');
         }
 
         // The comment line with the key comes first: the stream breaks after it and the first chunk of the fixture.
@@ -271,7 +271,7 @@ final readonly class AdapterSubject implements ContractSubject
     {
         $chunks = $this->fixtures->stream($fixture);
         if ($chunks === null || $chunks === []) {
-            throw new LogicException('There is no fixture for the stream of "' . $fixture->value . '", and the gateway says it streams.');
+            throw new WrongUse('There is no fixture for the stream of "' . $fixture->value . '", and the gateway says it streams.');
         }
 
         return [': ' . ContractTestCase::MARKER_KEY . "\n\n", ...$chunks];
@@ -280,7 +280,7 @@ final readonly class AdapterSubject implements ContractSubject
     private static function assertRepeats(string $body, string $echo): void
     {
         if (! str_contains($body, $echo)) {
-            throw new LogicException('The fixture for a failure must repeat the text it is given in its body, where the format has room for words of the provider.');
+            throw new WrongUse('The fixture for a failure must repeat the text it is given in its body, where the format has room for words of the provider.');
         }
     }
 

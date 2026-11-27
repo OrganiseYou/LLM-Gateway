@@ -8,6 +8,7 @@ use InvalidArgumentException;
 use OrganiseYou\LlmGateway\Adapter\Shared\AbstractAdapter;
 use OrganiseYou\LlmGateway\Contract\Credentials\CredentialKind;
 use OrganiseYou\LlmGateway\Contract\Internal\Rules;
+use OrganiseYou\LlmGateway\Contract\InvalidValue;
 use OrganiseYou\LlmGateway\Transport\HttpRequest;
 use ReflectionClass;
 use SensitiveParameter;
@@ -48,28 +49,28 @@ final readonly class Preset
         public array $adapterOptions = [],
     ) {
         if (preg_match('/^[a-z][a-z0-9-]{0,63}$/D', $id) !== 1) {
-            throw new InvalidArgumentException('The id of a preset must match ^[a-z][a-z0-9-]{0,63}$.');
+            throw new InvalidValue('The id of a preset must match ^[a-z][a-z0-9-]{0,63}$.');
         }
         if ($label === '') {
-            throw new InvalidArgumentException('The label of a preset must not be empty.');
+            throw new InvalidValue('The label of a preset must not be empty.');
         }
         if (! is_subclass_of($adapter, AbstractAdapter::class) || ! (new ReflectionClass($adapter))->isInstantiable()) {
-            throw new InvalidArgumentException('The adapter of a preset must be a class that extends the adapter base and can be built.');
+            throw new InvalidValue('The adapter of a preset must be a class that extends the adapter base and can be built.');
         }
         if ($baseUrlRule === BaseUrlRule::CustomerMust && $defaultBaseUrl !== null) {
-            throw new InvalidArgumentException('A preset whose customer must give the base URL has no default base URL.');
+            throw new InvalidValue('A preset whose customer must give the base URL has no default base URL.');
         }
         if ($baseUrlRule !== BaseUrlRule::CustomerMust && $defaultBaseUrl === null) {
-            throw new InvalidArgumentException('A preset needs a default base URL unless the customer must give one.');
+            throw new InvalidValue('A preset needs a default base URL unless the customer must give one.');
         }
 
         self::assertCredentialKinds($credentialKinds);
 
         if ($keyHeader === null && in_array(CredentialKind::HeaderKey, $credentialKinds, true)) {
-            throw new InvalidArgumentException('A preset that accepts a header key must name the header.');
+            throw new InvalidValue('A preset that accepts a header key must name the header.');
         }
         if ($keyHeader !== null && ! Rules::isHttpToken($keyHeader)) {
-            throw new InvalidArgumentException('The key header of a preset must be an HTTP token.');
+            throw new InvalidValue('The key header of a preset must be an HTTP token.');
         }
 
         $fieldsByKey = self::fieldsByKey($fields);
@@ -104,10 +105,10 @@ final readonly class Preset
     {
         foreach ($adapterOptions as $name => $value) {
             if (! is_string($name)) {
-                throw new InvalidArgumentException('The name of an adapter option must be a string.');
+                throw new InvalidValue('The name of an adapter option must be a string.');
             }
             if (! is_bool($value) && ! is_int($value) && ! is_string($value)) {
-                throw new InvalidArgumentException('An adapter option must be a boolean, an integer or a string.');
+                throw new InvalidValue('An adapter option must be a boolean, an integer or a string.');
             }
         }
     }
@@ -118,14 +119,14 @@ final readonly class Preset
     private static function assertCredentialKinds(array $credentialKinds): void
     {
         if ($credentialKinds === []) {
-            throw new InvalidArgumentException('A preset must accept at least one credential kind.');
+            throw new InvalidValue('A preset must accept at least one credential kind.');
         }
         if (! array_is_list($credentialKinds)) {
-            throw new InvalidArgumentException('The credential kinds of a preset must be a list.');
+            throw new InvalidValue('The credential kinds of a preset must be a list.');
         }
         foreach ($credentialKinds as $kind) {
             if (! $kind instanceof CredentialKind) {
-                throw new InvalidArgumentException('The credential kinds of a preset hold a value that is not a credential kind.');
+                throw new InvalidValue('The credential kinds of a preset hold a value that is not a credential kind.');
             }
         }
     }
@@ -137,16 +138,16 @@ final readonly class Preset
     private static function fieldsByKey(array $fields): array
     {
         if (! array_is_list($fields)) {
-            throw new InvalidArgumentException('The fields of a preset must be a list.');
+            throw new InvalidValue('The fields of a preset must be a list.');
         }
 
         $byKey = [];
         foreach ($fields as $field) {
             if (! $field instanceof PresetField) {
-                throw new InvalidArgumentException('The fields of a preset hold a value that is not a field.');
+                throw new InvalidValue('The fields of a preset hold a value that is not a field.');
             }
             if (isset($byKey[$field->key])) {
-                throw new InvalidArgumentException('Two fields of a preset have the same key.');
+                throw new InvalidValue('Two fields of a preset have the same key.');
             }
             $byKey[$field->key] = $field;
         }
@@ -162,10 +163,10 @@ final readonly class Preset
         preg_match_all('/\{([^{}]*)\}/', $url, $matches);
         foreach ($matches[1] as $key) {
             if (! isset($fieldsByKey[$key])) {
-                throw new InvalidArgumentException('A placeholder in the default base URL must name a field of the preset.');
+                throw new InvalidValue('A placeholder in the default base URL must name a field of the preset.');
             }
             if ($fieldsByKey[$key]->pattern === null) {
-                throw new InvalidArgumentException('A field that is used in the default base URL must have a pattern.');
+                throw new InvalidValue('A field that is used in the default base URL must have a pattern.');
             }
         }
 
@@ -174,7 +175,7 @@ final readonly class Preset
         if (preg_match('/^[a-z]+:\/\/([^\/?#:]*)/Di', $url, $host) === 1
             && str_contains($host[1], '{')
             && preg_match('/\}[A-Za-z0-9-]*\.[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/D', $host[1]) !== 1) {
-            throw new InvalidArgumentException(
+            throw new InvalidValue(
                 'A placeholder in the host of the default base URL must be followed by a dot and a fixed domain of two labels.',
             );
         }
@@ -190,7 +191,7 @@ final readonly class Preset
             }
         }
         if (! $valid) {
-            throw new InvalidArgumentException(
+            throw new InvalidValue(
                 'The default base URL must be an absolute http or https URL with a host, without user info, query or fragment.',
             );
         }

@@ -9,11 +9,14 @@ use OrganiseYou\LlmGateway\Contract\CheckResult;
 use OrganiseYou\LlmGateway\Contract\Credentials\BearerKey;
 use OrganiseYou\LlmGateway\Contract\Credentials\BearerToken;
 use OrganiseYou\LlmGateway\Contract\Credentials\HeaderKey;
+use OrganiseYou\LlmGateway\Contract\ForeignFault;
 use OrganiseYou\LlmGateway\Contract\GatewayException;
 use OrganiseYou\LlmGateway\Contract\Internal\Rules;
+use OrganiseYou\LlmGateway\Contract\InvalidValue;
 use OrganiseYou\LlmGateway\Contract\RetryPolicy;
 use OrganiseYou\LlmGateway\Contract\Stream\StreamFailed;
 use OrganiseYou\LlmGateway\Contract\Stream\StreamFinished;
+use OrganiseYou\LlmGateway\Contract\WrongUse;
 use OrganiseYou\LlmGateway\GatewayConfig;
 use OrganiseYou\LlmGateway\GatewayFactory;
 use OrganiseYou\LlmGateway\Preset\Preset;
@@ -245,10 +248,10 @@ describe('what leaves complete(), stream() and models()', function (): void {
         ['a stream that is refused', 'failed: credentials_rejected'],
         ['a stream with an error inside', 'failed: provider_error'],
         ['a stream in which the adapter throws', 'failed: provider_error'],
-        ['a stream in which the code of the adapter fails', Error::class],
+        ['a stream in which the code of the adapter fails', ForeignFault::class],
         ['the model list', 'models'],
         ['a model list that is refused', 'credentials_rejected'],
-        ['a wrong timeout', InvalidArgumentException::class],
+        ['a wrong timeout', InvalidValue::class],
         ['a sign-in that is refused', 'credentials_rejected'],
         ['a header key that comes back as the code', 'credentials_rejected'],
         ['a token that comes back as the code', 'credentials_rejected'],
@@ -257,7 +260,7 @@ describe('what leaves complete(), stream() and models()', function (): void {
         ['a code that ends with the key, in a stream', 'failed: provider_error'],
         ['a detail of the adapter with the key inside it', 'provider_error'],
         ['a detail of the adapter with the key inside it, in a stream', 'failed: provider_error'],
-        ['a value of the adapter that is no stream event', Error::class],
+        ['a value of the adapter that is no stream event', ForeignFault::class],
         ['a rate limit with a wait that is too long', 'rate_limited'],
         ['a server error after the retries', 'unavailable'],
         ['a request that is refused', 'rejected'],
@@ -266,11 +269,11 @@ describe('what leaves complete(), stream() and models()', function (): void {
         ['an error inside a 200', 'provider_error'],
         ['a body that cannot be decoded', 'provider_error'],
         ['an exception of the adapter', 'provider_error'],
-        ['a fault in the code of the adapter', Error::class],
-        ['a fault in the code of the adapter while it reads a failure', Error::class],
+        ['a fault in the code of the adapter', ForeignFault::class],
+        ['a fault in the code of the adapter while it reads a failure', ForeignFault::class],
         ['a token supplier that fails', 'credentials_rejected'],
-        ['an address outside the base URL', LogicException::class],
-        ['a transport without an answer', LogicException::class],
+        ['an address outside the base URL', WrongUse::class],
+        ['a transport without an answer', WrongUse::class],
     ]);
 
     it('would show the marker if the code of the provider were not checked against the credentials: the scenarios do carry it', function (): void {

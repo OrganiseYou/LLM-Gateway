@@ -23,6 +23,7 @@ use OrganiseYou\LlmGateway\Adapter\Shared\Internal\SchemaCheckTooCostly;
 use OrganiseYou\LlmGateway\Adapter\Shared\Internal\SchemaReferenceLoop;
 use OrganiseYou\LlmGateway\Contract\ErrorReason;
 use OrganiseYou\LlmGateway\Contract\FinishReason;
+use OrganiseYou\LlmGateway\Contract\ForeignFault;
 use OrganiseYou\LlmGateway\Contract\GatewayException;
 use OrganiseYou\LlmGateway\Contract\JsonSchema;
 use OrganiseYou\LlmGateway\Contract\ResponseFormat;
@@ -538,7 +539,7 @@ final readonly class StructuredAnswerChecker
      *
      * Its own exceptions, the loop the guard found, and a type or value error raised in its own code (it raises
      * those for a keyword of a wrong type) are the schema being wrong: rejected. Any other error is a fault in
-     * code, not a failure of the schema: a new plain error with a fixed text, as the adapter base gives for a fault
+     * code, not a failure of the schema: a new ForeignFault with a fixed text, as the adapter base gives for a fault
      * in an adapter. An exception that is not of the validator can only come from the error handler of the host,
      * and passes as it is.
      *
@@ -564,7 +565,8 @@ final readonly class StructuredAnswerChecker
             // An anonymous class carries the path of its file after a null byte.
             $class = strstr($thrown::class, "\0", true);
 
-            return new Error(sprintf(
+            // Built while the answer is on the stack: no argument stays in the trace.
+            return new ForeignFault(sprintf(
                 'The structured check failed with an error of class %s, thrown in %s on line %d.',
                 $class === false ? $thrown::class : $class,
                 basename($thrown->getFile()),

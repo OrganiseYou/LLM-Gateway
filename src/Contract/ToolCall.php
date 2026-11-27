@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace OrganiseYou\LlmGateway\Contract;
 
-use InvalidArgumentException;
-
 /**
  * A call the model asked for. Arguments that could not be read are a value, not an exception: the call then holds
  * the reason, so it can go back to the model as readable text.
@@ -26,16 +24,16 @@ final readonly class ToolCall
         public string $rawArguments,
     ) {
         if ($id === '') {
-            throw new InvalidArgumentException('A tool call needs an id.');
+            throw new InvalidValue('A tool call needs an id.');
         }
         if (($arguments === null) === ($argumentsError === null)) {
-            throw new InvalidArgumentException('A tool call holds either arguments or an arguments error.');
+            throw new InvalidValue('A tool call holds either arguments or an arguments error.');
         }
         if ($argumentsError === '') {
-            throw new InvalidArgumentException('The arguments error of a tool call must not be empty.');
+            throw new InvalidValue('The arguments error of a tool call must not be empty.');
         }
         if ($arguments !== null && $arguments !== [] && self::isList($arguments)) {
-            throw new InvalidArgumentException('The arguments of a tool call are a JSON object, not a list.');
+            throw new InvalidValue('The arguments of a tool call are a JSON object, not a list.');
         }
     }
 

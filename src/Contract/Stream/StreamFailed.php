@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace OrganiseYou\LlmGateway\Contract\Stream;
 
-use InvalidArgumentException;
 use OrganiseYou\LlmGateway\Contract\GatewayException;
+use OrganiseYou\LlmGateway\Contract\InvalidValue;
 use OrganiseYou\LlmGateway\Contract\ToolCall;
 
 /**
@@ -31,11 +31,11 @@ final readonly class StreamFailed implements StreamEvent
     private static function assertToolCalls(array $toolCallsSoFar): void
     {
         if (! array_is_list($toolCallsSoFar)) {
-            throw new InvalidArgumentException('The tool calls so far must be a list.');
+            throw new InvalidValue('The tool calls so far must be a list.');
         }
         foreach ($toolCallsSoFar as $toolCall) {
             if (! $toolCall instanceof ToolCall) {
-                throw new InvalidArgumentException('The tool calls so far hold a value that is not a tool call.');
+                throw new InvalidValue('The tool calls so far hold a value that is not a tool call.');
             }
         }
     }

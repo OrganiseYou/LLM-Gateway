@@ -19,6 +19,11 @@
         <testsuite name="Architecture">
             <directory>tests/Architecture</directory>
         </testsuite>
+        <testsuite name="Readme">
+            <!-- Executes the samples of README.md that are marked as running, and runs the shared test set on the
+                 example adapter the README shows. -->
+            <directory>tests/Readme</directory>
+        </testsuite>
     </testsuites>
     <php>
         <!-- The leak tests print whole exception traces with their arguments, and those reach every test of the

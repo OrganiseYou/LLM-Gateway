@@ -5,9 +5,7 @@ declare(strict_types=1);
 namespace OrganiseYou\LlmGateway\Contract;
 
 use Generator;
-use InvalidArgumentException;
 use JsonSerializable;
-use LogicException;
 use SensitiveParameter;
 use Stringable;
 
@@ -29,7 +27,7 @@ final class Secret implements JsonSerializable, Stringable
     public function __construct(#[SensitiveParameter] string $value)
     {
         if ($value === '') {
-            throw new InvalidArgumentException('A secret must not be empty.');
+            throw new InvalidValue('A secret must not be empty.');
         }
 
         $this->holder = self::hold($value);
@@ -63,7 +61,7 @@ final class Secret implements JsonSerializable, Stringable
      */
     public function __serialize(): array
     {
-        throw new LogicException('A secret cannot be serialized.');
+        throw new WrongUse('A secret cannot be serialized.');
     }
 
     /**
@@ -71,7 +69,7 @@ final class Secret implements JsonSerializable, Stringable
      */
     public function __unserialize(#[SensitiveParameter] array $data): void
     {
-        throw new LogicException('A secret cannot be unserialized.');
+        throw new WrongUse('A secret cannot be unserialized.');
     }
 
     /**

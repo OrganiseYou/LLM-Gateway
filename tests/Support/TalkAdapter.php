@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace OrganiseYou\LlmGateway\Tests\Support;
 
+use JsonException;
 use OrganiseYou\LlmGateway\Adapter\Shared\AbstractAdapter;
 use OrganiseYou\LlmGateway\Adapter\Shared\StructuredOutputEmulation;
 use OrganiseYou\LlmGateway\Contract\Answer;
@@ -67,6 +68,8 @@ final readonly class TalkAdapter extends AbstractAdapter
 
     protected function completionRequest(Request $request, bool $stream): HttpRequest
     {
+        $this->breakWhileBuilding($request->messages[0]->text());
+
         $longest = $this->option('max_tool_name', 0);
         foreach ($request->tools as $tool) {
             if (is_int($longest) && $longest > 0 && strlen($tool->name) > $longest) {
@@ -102,7 +105,7 @@ final readonly class TalkAdapter extends AbstractAdapter
             $this->option('sends_trace', false) === true ? ['Content-Type' => 'application/json', 'X-Trace' => (string) $request->traceId] : ['Content-Type' => 'application/json'],
             [],
             $request->timeoutSeconds,
-            (string) json_encode([
+            $this->encoded([
                 'model' => $request->model,
                 'stream' => $stream,
                 'lines' => $lines,
@@ -111,6 +114,36 @@ final readonly class TalkAdapter extends AbstractAdapter
                 'dialect' => $this->setting('dialect'),
             ]),
         );
+    }
+
+    /**
+     * The body as JSON. A value the encoder refuses is a request this format cannot carry: refused as rejected,
+     * with a sentence of the adapter, never with the text of the encoder.
+     *
+     * @param array<string, mixed> $body
+     */
+    private function encoded(#[SensitiveParameter] array $body): string
+    {
+        try {
+            return json_encode($body, JSON_THROW_ON_ERROR);
+        } catch (JsonException) {
+            throw $this->failure(ErrorReason::Rejected, 'the request holds a value that cannot be written as JSON');
+        }
+    }
+
+    /**
+     * What a careless adapter does while it builds a request, when the preset asks for it with the option
+     * "build_fails": an exception with the text of the caller in its message, or a fault in its code.
+     */
+    private function breakWhileBuilding(#[SensitiveParameter] string $text): void
+    {
+        $how = $this->option('build_fails', '');
+        if ($how === 'exception') {
+            throw new RuntimeException('Could not build the request for: ' . $text);
+        }
+        if ($how === 'error') {
+            self::errorWith($text);
+        }
     }
 
     protected function readCompletion(#[SensitiveParameter] HttpResponse $response, Request $request): Answer
@@ -179,6 +212,8 @@ final readonly class TalkAdapter extends AbstractAdapter
 
     protected function modelsRequest(float $timeoutSeconds): ?HttpRequest
     {
+        $this->breakWhileBuilding('the model list');
+
         if ($this->option('lists_models', true) !== true) {
             return null;
         }

@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace OrganiseYou\LlmGateway\Contract;
 
-use InvalidArgumentException;
 use JsonException;
 use stdClass;
 
@@ -61,20 +60,20 @@ final readonly class JsonSchema
         try {
             $root = json_decode($json, false, 512, JSON_THROW_ON_ERROR);
         } catch (JsonException) {
-            throw new InvalidArgumentException('The schema is not valid JSON.');
+            throw new InvalidValue('The schema is not valid JSON.');
         }
 
         if (! $root instanceof stdClass) {
-            throw new InvalidArgumentException('The root of the schema must be a JSON object.');
+            throw new InvalidValue('The root of the schema must be a JSON object.');
         }
         if (! property_exists($root, 'type') || $root->type !== 'object') {
-            throw new InvalidArgumentException('The root of the schema must have "type": "object".');
+            throw new InvalidValue('The root of the schema must have "type": "object".');
         }
 
         try {
             return new self(json_encode($root, self::ENCODE_FLAGS));
         } catch (JsonException) {
-            throw new InvalidArgumentException('The schema cannot be encoded as JSON.');
+            throw new InvalidValue('The schema cannot be encoded as JSON.');
         }
     }
 
@@ -87,13 +86,13 @@ final readonly class JsonSchema
             return self::fromJson('{}');
         }
         if (self::isList($schema)) {
-            throw new InvalidArgumentException('The schema must be a JSON object, not a list.');
+            throw new InvalidValue('The schema must be a JSON object, not a list.');
         }
 
         try {
             $json = json_encode(self::schema($schema, 1), self::ENCODE_FLAGS);
         } catch (JsonException) {
-            throw new InvalidArgumentException('The schema cannot be encoded as JSON.');
+            throw new InvalidValue('The schema cannot be encoded as JSON.');
         }
 
         return self::fromJson($json);
@@ -197,7 +196,7 @@ final readonly class JsonSchema
     private static function assertDepth(int $depth): void
     {
         if ($depth > self::MAX_DEPTH) {
-            throw new InvalidArgumentException(
+            throw new InvalidValue(
                 sprintf('The schema is nested deeper than %d levels.', self::MAX_DEPTH),
             );
         }
