@@ -6,6 +6,7 @@ namespace OrganiseYou\LlmGateway\Adapter\OpenAiCompatible;
 
 use JsonException;
 use OrganiseYou\LlmGateway\Adapter\Shared\AbstractAdapter;
+use OrganiseYou\LlmGateway\Adapter\Shared\RawJson;
 use OrganiseYou\LlmGateway\Adapter\Shared\StructuredOutputEmulation;
 use OrganiseYou\LlmGateway\Contract\Answer;
 use OrganiseYou\LlmGateway\Contract\Capabilities;
@@ -101,7 +102,8 @@ final readonly class ChatCompletionsAdapter extends AbstractAdapter
             && ($request->tools === [] || $can->toolsWithStructuredOutput === Support::Native);
         $instructions = $format !== null && ! $asAField ? (new StructuredOutputEmulation())->instructions($format) : null;
 
-        $body = ['model' => $request->model, 'messages' => $this->messages($request, $dialect, $instructions)];
+        // The messages are written one by one, further down: one of them may hold content that is JSON text already.
+        $body = ['model' => $request->model, 'messages' => null];
 
         if ($request->tools !== []) {
             $body += $this->toolFields($request, $dialect);
@@ -126,7 +128,12 @@ final readonly class ChatCompletionsAdapter extends AbstractAdapter
         }
 
         try {
-            $json = json_encode($body, self::JSON);
+            $members = [];
+            foreach ($body as $name => $value) {
+                $members[$name] = json_encode($value, self::JSON);
+            }
+            $members['messages'] = RawJson::list($this->messages($request, $dialect, $instructions));
+            $json = RawJson::object($members);
         } catch (JsonException) {
             throw $this->failure(ErrorReason::Rejected, 'the request holds a value that cannot be written as JSON');
         }
@@ -135,10 +142,12 @@ final readonly class ChatCompletionsAdapter extends AbstractAdapter
     }
 
     /**
-     * The messages in the shape of the format. The system messages come first, as one message each or joined to
-     * one; the instructions for a structured answer, when there are any, are the last of the system text.
+     * The messages in the shape of the format, each as JSON text. The system messages come first, as one message
+     * each or joined to one; the instructions for a structured answer, when there are any, are the last of the
+     * system text.
      *
-     * @return list<array<string, mixed>>
+     * @return list<string>
+     * @throws JsonException when a message holds a value that cannot be written as JSON
      */
     private function messages(
         #[SensitiveParameter]
@@ -156,9 +165,9 @@ final readonly class ChatCompletionsAdapter extends AbstractAdapter
                 continue;
             }
             $others[] = match ($message->role) {
-                Role::User => ['role' => 'user', 'content' => $message->text()],
+                Role::User => json_encode(['role' => 'user', 'content' => $message->text()], self::JSON),
                 Role::Assistant => $this->assistantMessage($message, $dialect),
-                Role::Tool => self::toolMessage($message, $dialect),
+                Role::Tool => json_encode(self::toolMessage($message, $dialect), self::JSON),
             };
         }
         if ($instructions !== null) {
@@ -170,16 +179,19 @@ final readonly class ChatCompletionsAdapter extends AbstractAdapter
 
         $messages = [];
         foreach ($system as $text) {
-            $messages[] = ['role' => $dialect->systemRole, 'content' => $text];
+            $messages[] = json_encode(['role' => $dialect->systemRole, 'content' => $text], self::JSON);
         }
 
         return [...$messages, ...$others];
     }
 
     /**
-     * @return array<string, mixed>
+     * An assistant message as JSON text. Its content is its text, or, on a server that wants the list of entries
+     * of its answer back, that list as it came.
+     *
+     * @throws JsonException when the message holds a value that cannot be written as JSON
      */
-    private function assistantMessage(#[SensitiveParameter] Message $message, Dialect $dialect): array
+    private function assistantMessage(#[SensitiveParameter] Message $message, Dialect $dialect): string
     {
         $text = $message->text();
         $entry = [
@@ -207,7 +219,15 @@ final readonly class ChatCompletionsAdapter extends AbstractAdapter
             $entry['tool_calls'] = $calls;
         }
 
-        return $entry;
+        $members = [];
+        foreach ($entry as $name => $value) {
+            $members[$name] = json_encode($value, self::JSON);
+        }
+        if ($dialect->reasoningCarrier === ReasoningCarrier::ContentEntries) {
+            $members['content'] = $this->contentThatCameWith($message) ?? $members['content'];
+        }
+
+        return RawJson::object($members);
     }
 
     /**
@@ -238,6 +258,22 @@ final readonly class ChatCompletionsAdapter extends AbstractAdapter
         $reasoning = json_decode($sealed['reasoning']);
 
         return is_string($reasoning) && $reasoning !== '' ? $reasoning : null;
+    }
+
+    /**
+     * The list of content entries this adapter sealed with this message, as JSON text, or null: no part, a part
+     * of another adapter, or a message that was changed since. Only one string is taken from the part, and it is
+     * sent only when it is a list of objects: it stands as the content of this one message and nowhere else.
+     */
+    private function contentThatCameWith(#[SensitiveParameter] Message $message): ?string
+    {
+        $sealed = $this->unseal($message);
+        if ($sealed === null || array_keys($sealed) !== ['content'] || ! is_string($sealed['content'])) {
+            return null;
+        }
+
+        // Only the text this adapter would have sealed: one spelling, and nothing before or after the list.
+        return ContentEntries::kept($sealed['content']) === $sealed['content'] ? $sealed['content'] : null;
     }
 
     /**
@@ -390,7 +426,8 @@ final readonly class ChatCompletionsAdapter extends AbstractAdapter
             Reading::usage($choice) ?? Reading::usage($body) ?? new Usage(null, null),
             Reading::string($body, 'model'),
             null,
-            $this->sealedReasoning($text, $calls, Reading::reasoning($message), $dialect),
+            $this->sealedReasoning($text, $calls, Reading::reasoning($message), $dialect)
+                ?? $this->sealedContent($text, $calls, $response->body, $message['content'] ?? null, $dialect),
         );
     }
 
@@ -408,6 +445,12 @@ final readonly class ChatCompletionsAdapter extends AbstractAdapter
         // The text that is held back while it can still be a block of inline reasoning.
         $held = '';
         $state = $dialect->stripsInlineReasoning ? InlineReasoning::UNDECIDED : InlineReasoning::TEXT;
+
+        // The entries of the content, joined from the pieces of the chunks, for a server that wants them back.
+        // `kept` is false from the first piece on that is no string and no list of objects, or with which the
+        // entries pass the limits of what is kept: from then on nothing is kept and nothing more is built.
+        $entries = ContentEntries::none();
+        $kept = $dialect->reasoningCarrier === ReasoningCarrier::ContentEntries;
 
         // The tool calls, in the order they first appeared: what was read of each, and the id it was announced
         // with once it was. `byIndex` and `byId` say which call a piece of a chunk belongs to.
@@ -444,7 +487,19 @@ final readonly class ChatCompletionsAdapter extends AbstractAdapter
             $reasoning .= Reading::reasoning($delta);
             $refusal .= Reading::string($delta, 'refusal');
 
-            [$state, $held, $piece] = InlineReasoning::feed($state, $held, Reading::text($delta['content'] ?? null));
+            $content = $delta['content'] ?? null;
+            if ($kept && is_string($content)) {
+                $kept = ContentEntries::addText($entries, $content);
+            } elseif ($kept && is_array($content)) {
+                // The list as text, measured before it is decoded once more to see that it is what was read.
+                $list = RawJson::at($event->data, ['choices', 0, 'delta', 'content']);
+                $kept = $list !== null && ContentEntries::isWithinTheLimits($list) && json_decode($list, true) === $content && ContentEntries::addList($entries, $list);
+            }
+            if (! $kept) {
+                $entries = ContentEntries::none();
+            }
+
+            [$state, $held, $piece] = InlineReasoning::feed($state, $held, Reading::text($content));
             if ($piece !== '') {
                 $text .= $piece;
                 yield new TextDelta($piece);
@@ -551,7 +606,8 @@ final readonly class ChatCompletionsAdapter extends AbstractAdapter
             $usage ?? new Usage(null, null),
             $model,
             null,
-            $this->sealedReasoning($text, $toolCalls, $reasoning, $dialect),
+            $this->sealedReasoning($text, $toolCalls, $reasoning, $dialect)
+                ?? ($kept && ContentEntries::entriesHoldMoreThanText($entries) ? $this->sealedEntries($text, $toolCalls, ContentEntries::written($entries)) : null),
         ));
     }
 
@@ -616,9 +672,61 @@ final readonly class ChatCompletionsAdapter extends AbstractAdapter
             return null;
         }
 
-        $json = json_encode($reasoning, self::JSON & ~JSON_THROW_ON_ERROR);
+        // In the spelling with the fewest escapes: the adapter base searches the part for a credential as text.
+        return $this->seal($text, $toolCalls, ['reasoning' => RawJson::string($reasoning)]);
+    }
 
-        return $json === false ? null : $this->seal($text, $toolCalls, ['reasoning' => $json]);
+    /**
+     * The content of a whole answer as its opaque part, for a server that wants the entries of that content back;
+     * null for every other server, and for a content that is a string or holds only text.
+     *
+     * The list is cut out of the body as the text it is: decoded, an empty object would come back as an empty
+     * list and a number in another spelling. It is kept only when that text is the content that was read, and
+     * is within the limits of what is kept.
+     *
+     * @param list<ToolCall> $toolCalls
+     * @param mixed $content the content of the message, decoded
+     */
+    private function sealedContent(
+        #[SensitiveParameter]
+        string $text,
+        #[SensitiveParameter]
+        array $toolCalls,
+        #[SensitiveParameter]
+        string $body,
+        #[SensitiveParameter]
+        mixed $content,
+        Dialect $dialect,
+    ): ?OpaquePart {
+        if ($dialect->reasoningCarrier !== ReasoningCarrier::ContentEntries || ! ContentEntries::holdsMoreThanText($content)) {
+            return null;
+        }
+
+        // Cut out, measured and brought to one spelling as text; only then decoded, to see that it is what was read.
+        $list = RawJson::at($body, ['choices', 0, 'message', 'content']);
+        $kept = $list === null ? null : ContentEntries::kept($list);
+
+        return $kept !== null && json_decode($kept, true) === $content ? $this->seal($text, $toolCalls, ['content' => $kept]) : null;
+    }
+
+    /**
+     * A list of content entries as an opaque part: one string that holds its JSON text. Null when the text is
+     * not a list of objects, which is the only thing that is ever sent back as content.
+     *
+     * @param list<ToolCall> $toolCalls
+     * @param string $list the JSON text of the list
+     */
+    private function sealedEntries(
+        #[SensitiveParameter]
+        string $text,
+        #[SensitiveParameter]
+        array $toolCalls,
+        #[SensitiveParameter]
+        string $list,
+    ): ?OpaquePart {
+        $kept = ContentEntries::kept($list);
+
+        return $kept === null ? null : $this->seal($text, $toolCalls, ['content' => $kept]);
     }
 
     // ---------------------------------------------------------------------------------------------------------

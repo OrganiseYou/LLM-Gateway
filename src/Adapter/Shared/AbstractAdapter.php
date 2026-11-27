@@ -818,7 +818,8 @@ abstract readonly class AbstractAdapter implements Gateway
     /**
      * Whether a text a server wrote holds a credential of the gateway anywhere in it, in any case of letters. A
      * credential is searched as it is, as JSON writes it inside a string, and with every backslash taken out of
-     * both: JSON text inside a string writes a slash as a backslash and a slash.
+     * the text and of each of those forms: JSON text inside a string writes a slash as a backslash and a slash,
+     * and may write a character as an escape with its number.
      *
      * @param list<Secret> $inUse the secrets asked for this attempt alone: a token of the supplier
      */
@@ -846,9 +847,14 @@ abstract readonly class AbstractAdapter implements Gateway
                 }
             }
 
-            $bareSecret = str_replace('\\', '', $plain);
-            if ($bareSecret !== '' && stripos($bare, $bareSecret) !== false) {
-                return true;
+            // With every backslash taken out of both: the credential as it is, and as JSON writes it. The second
+            // finds a credential in JSON text that was sealed as one string and writes a character as an escape
+            // with its number (a letter that is not ASCII, a line end of Unicode), whatever wrote that text.
+            foreach ($forms as $form) {
+                $bareForm = str_replace('\\', '', $form);
+                if ($bareForm !== '' && stripos($bare, $bareForm) !== false) {
+                    return true;
+                }
             }
         }
 

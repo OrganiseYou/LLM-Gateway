@@ -13,7 +13,7 @@ asks to repeat, and `"{{status}}"` by the status of the response as a number.
   status 200. No provider file documents an error under a successful status for this format; the adapter reads one
   defensively, and these two files use the documented error body to show it.
 
-There are four sets, one folder each. Each set is what one kind of server gives, and one contract test class runs on
+There are five sets, one folder each. Each set is what one kind of server gives, and one contract test class runs on
 it (`tests/Contract/ChatCompletions…ContractTest.php`).
 
 ## `default`
@@ -58,3 +58,29 @@ the chunk that ends the answer and in the extra chunk after it. The error body h
 - The other answers hold no reasoning: an answer of plain text and tool calls has no opaque part, and the shared
   test set checks that.
 - No refusal and no withheld output: the server this set stands for documents no field for either.
+
+## `content-entries`
+
+A server whose answer can hold its reasoning as an entry of the content and wants the whole content back
+(`reasoning_carrier: content_entries`). Its preset sets the five options of row 13 of the preset entries
+(`docs/design/adapters.md`, section 9): `max_tokens_field: max_tokens`, `required_word: any`,
+`tool_result_name: true`, `reasoning_carrier: content_entries` and `stream_usage: unasked`. The shapes are those of
+`docs/providers/mistral.md`, "Limits and shapes".
+
+- Content in both forms: a string in most files; a list of `text` entries in `structured_valid.*`; a list with a
+  `thinking` entry, whose `thinking` is itself a list of text entries, and a `text` entry in
+  `tool_call_with_opaque_data.*`.
+- Tool-call arguments in both forms: a string that holds JSON in `tool_call.*`, `garbled_tool_call.*` and
+  `tool_call_with_opaque_data.*`; an object in `parallel_tool_calls.*`. A tool call carries an `index`, and its id is
+  nine letters and digits. In a stream a call arrives whole, in one chunk.
+- `tool_call_with_opaque_data.*`: the tool call of `tool_call.*` with a `thinking` entry and a `text` entry
+  ("One moment.") as the content. The thinking entry holds the words `opaque-tracer`. The stream is written to the
+  words of the provider file: first lists that hold one `thinking` entry each, then one list that holds the closing
+  `thinking` entry and the first `text` entry, then a plain string, then the tool call. The adapter joins them to
+  the two entries of the whole answer. The provider file shows no chunk of such a stream: the pieces are written
+  to its words, with no field it does not list (decision G100, not confirmed).
+- A stream reports its usage on its last chunk, the one with the finish reason, without being asked, and has
+  `usage: null` on the chunks before it.
+- `failed.json`: the flat error body, with `object: "error"`, a `type` and a number as its `code`.
+  `error_in_body.json` and `error_in_stream.sse` use the same body under a status 200.
+- No refusal and no withheld output: the provider file lists no field and no finish reason for either.

@@ -73,9 +73,24 @@ All notable changes to this package are written here. The format follows
   status 429 that means "no credit" is `rejected` and is not tried again, one that means "the provider is
   overloaded" is `unavailable`, and a wait in `retry-after-ms` is kept. With `reasoning_carrier: message_field` the
   reasoning beside an answer travels in the opaque part and goes back only with the message it came with. No preset
-  ships with it yet, and the value `content_entries` of `reasoning_carrier` is not built yet. `json_schema_strict:
-  when_fits` sends `strict: true` only for a schema that uses nothing but what the provider's documentation names as
-  accepted; an option whose name the adapter does not know is `not_configured`.
+  ships with it yet. `json_schema_strict: when_fits` sends `strict: true` only for a schema that uses nothing but
+  what the provider's documentation names as accepted; an option whose name the adapter does not know is
+  `not_configured`.
+- `reasoning_carrier: content_entries` on the chat-completions adapter, the third value of that option: for a server
+  whose answer holds its reasoning, a citation or another kind of entry inside a `content` that is a list. The whole
+  list travels in the opaque part of the answer, as the JSON text it arrived in (an empty object stays an empty
+  object and a number keeps its spelling), and goes back as the `content` of the assistant message, only with the
+  message it came with. In a stream the pieces of the list are joined into one list first. A content that is a
+  string, or a list of text only, has no opaque part, and neither has a list of more than 1 MiB or of more than
+  10,000 objects and lists. Before, a preset that set this value failed as `not_configured`.
+- `Adapter\Shared\RawJson`: reads JSON as the text it is, for an adapter that must send data of a provider back as
+  it came: `at()` gives the text of one value inside a body, `members()` and `items()` the text of each child,
+  `plain()` the same JSON in one spelling, `containers()` the number of objects and lists in a text without
+  decoding it.
+- The adapter base finds a credential in an opaque part also when the part holds JSON text that writes a character
+  of the credential as an escape with its number; such a part is dropped, as every part that holds a credential.
+- The chat-completions adapter reads the flat error body that names itself with `"object": "error"` also under a
+  successful status and as a chunk of a stream: such a call ends as `provider_error` with the provider's code.
 
 ### Changed
 

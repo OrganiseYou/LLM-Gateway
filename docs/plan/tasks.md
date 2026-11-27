@@ -211,7 +211,7 @@ the adapters cannot be built on the contract of S1 as it is. Section numbers bel
   not retried; a wait in `retry-after-ms` is kept.
 
 ### LG-13 · The Mistral dialect on the chat-completions adapter
-- Status: todo · Needs: LG-12
+- Status: done · Needs: LG-12
 - Note: From LG-12: copy its structure (Dialect, Reading, ErrorBody, fixtures builder, the test files under tests/Unit/Adapter/OpenAiCompatible); the base now keeps an echoed credential out of the model name, the model list and tool calls; a finish word for tool calls without a call is `Other`; an allow-list decides when a strict schema mode is sent.
 - Note: From LG-29: an empty JSON object sealed as an array comes back as `[]`; an adapter that must send provider data back unchanged seals the provider's raw JSON text as one string, not the decoded arrays.
 - Note: G64: not an adapter of its own. The id is kept; the scope changed.
@@ -223,6 +223,7 @@ the adapters cannot be built on the contract of S1 as it is. Section numbers bel
 
 ### LG-14 · The Messages adapter
 - Status: todo · Needs: LG-29, LG-30, LG-31, LG-32
+- Note: From LG-13: `Adapter\Shared\RawJson` cuts a member out of a body as text; anything sealed as one string must pass the size and container limits as text before it is decoded, in both directions and per stream piece (G100).
 - Note: From LG-12: copy its structure (Dialect, Reading, ErrorBody, fixtures builder, the test files under tests/Unit/Adapter/OpenAiCompatible); the base now keeps an echoed credential out of the model name, the model list and tool calls; a finish word for tool calls without a call is `Other`; an allow-list decides when a strict schema mode is sent.
 - Note: From LG-32: take `not` out in the same call as the constraint keywords, write `oneOf` as `anyOf` before sending, use the emulated route when `SchemaShape` says the reduced schema may be tighter (G89), and run `isRecursive()` and `everyObjectIsClosed()` on the copy that is sent.
 - Note: From LG-31: the adapter needs a test with a header setting filled in, to show none of its own headers clashes.
@@ -240,6 +241,7 @@ the adapters cannot be built on the contract of S1 as it is. Section numbers bel
 
 ### LG-15 · The generate-content adapter
 - Status: todo · Needs: LG-29, LG-30, LG-31, LG-32
+- Note: From LG-13: `Adapter\Shared\RawJson` cuts a member out of a body as text; anything sealed as one string must pass the size and container limits as text before it is decoded, in both directions and per stream piece (G100).
 - Note: From LG-12: copy its structure (Dialect, Reading, ErrorBody, fixtures builder, the test files under tests/Unit/Adapter/OpenAiCompatible); the base now keeps an echoed credential out of the model name, the model list and tool calls; a finish word for tool calls without a call is `Other`; an allow-list decides when a strict schema mode is sent.
 - Note: From LG-31: the adapter needs a test with a header setting filled in, to show none of its own headers clashes.
 - Note: From LG-30: the shared set tests the retry sign only on a 503 and a refusal only with text; the adapter needs its own unit tests for a 429 that forbids a retry and for a refusal without text.
@@ -255,6 +257,7 @@ the adapters cannot be built on the contract of S1 as it is. Section numbers bel
 
 ### LG-16 · The Chat v2 adapter
 - Status: todo · Needs: LG-29, LG-30, LG-31, LG-32
+- Note: From LG-13: `Adapter\Shared\RawJson` cuts a member out of a body as text; anything sealed as one string must pass the size and container limits as text before it is decoded, in both directions and per stream piece (G100).
 - Note: From LG-12: copy its structure (Dialect, Reading, ErrorBody, fixtures builder, the test files under tests/Unit/Adapter/OpenAiCompatible); the base now keeps an echoed credential out of the model name, the model list and tool calls; a finish word for tool calls without a call is `Other`; an allow-list decides when a strict schema mode is sent.
 - Note: From LG-32: take `not` out in the same call as the constraint keywords, write `oneOf` as `anyOf` before sending, use the emulated route when `SchemaShape` says the reduced schema may be tighter (G89), and run `isRecursive()` and `everyObjectIsClosed()` on the copy that is sent.
 - Note: From LG-31: the adapter needs a test with a header setting filled in, to show none of its own headers clashes.
@@ -274,6 +277,7 @@ the adapters cannot be built on the contract of S1 as it is. Section numbers bel
 
 ### LG-34 · The Responses adapter
 - Status: todo · Needs: LG-29, LG-30, LG-31, LG-32
+- Note: From LG-13: `Adapter\Shared\RawJson` cuts a member out of a body as text; anything sealed as one string must pass the size and container limits as text before it is decoded, in both directions and per stream piece (G100).
 - Note: From LG-12: copy its structure (Dialect, Reading, ErrorBody, fixtures builder, the test files under tests/Unit/Adapter/OpenAiCompatible); the base now keeps an echoed credential out of the model name, the model list and tool calls; a finish word for tool calls without a call is `Other`; an allow-list decides when a strict schema mode is sent.
 - Note: From LG-32: the provider's file names limits the row of 5.9 omits (root may not be an `anyOf`, total length of names and enum values, number of enum values); check them with the value method of `SchemaShape` (G89) before sending `strict`.
 - Note: From LG-31: the adapter needs a test with a header setting filled in, to show none of its own headers clashes.
@@ -334,6 +338,7 @@ weight is compared with the provider's page first.
 
 ### LG-21 · Presets: Claude, Gemini and Vertex AI, Cohere, Mistral, Microsoft Copilot / Azure OpenAI
 - Status: todo · Needs: LG-13, LG-14, LG-15, LG-16
+- Note: From LG-13: how a streamed content list is joined for the `mistral` entry is not confirmed by the provider's file (G100); the live check of LG-27 must cover a streamed answer with thinking and its next round.
 - Note: From LG-31: no field of an entry names a header that carries a credential at that provider (the neutral reserved list cannot know provider header names).
 - Note: G59 is decided as (a): the `azure-openai` entry is built on the Responses adapter, so it also needs LG-34. G62: the catalogue has no `kyutai` entry; its count is twenty.
 - Note: G60, G75: add the catalogue `Preset\Presets` (`all()`, `find()`, `ids()`; section 8) with a test that every entry of section 9 that is built is in it, in that order, and every id is unique.
@@ -412,6 +417,7 @@ weight is compared with the provider's page first.
 
 ### LG-27 · Run the live check with real keys
 - Status: needs-joris · Needs: LG-25
+- Note: From LG-13: how a streamed content list is joined for the `mistral` entry is not confirmed by the provider's file (G100); the live check of LG-27 must cover a streamed answer with thinking and its next round.
 - For Joris: run `php live/check.php <preset>` for each provider you have an account for, and write the outcome per
   preset in `docs/providers/live-results.md`. Presets without a run stay marked "not run against the real provider".
 

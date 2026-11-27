@@ -593,6 +593,11 @@ describe('a credential and the opaque part', function (): void {
         'a key with a slash, in JSON text of the provider that was sealed as one string' => [new BearerKey('sk/AbC/' . LEAK_MARKER), '{\"echo\":\"sk\\/AbC\\/' . LEAK_MARKER . '\"}'],
         'a key with a slash, in JSON text that was escaped twice' => [new BearerKey('sk/AbC/' . LEAK_MARKER), 'sk\\\\\\/AbC\\\\\\/' . LEAK_MARKER],
         'a key with a backslash, written without it' => [new BearerKey('sk\\AbC-' . LEAK_MARKER), 'skAbC-' . LEAK_MARKER],
+        // "\x5c" is a backslash: the texts below hold an escape of JSON as text, a backslash, the letter u and a number.
+        'a key with a line end of Unicode' => [new BearerKey("sk\xe2\x80\xa8" . LEAK_MARKER), "sk\xe2\x80\xa8" . LEAK_MARKER],
+        'a key with a line end of Unicode, in JSON text that was sealed as one string' => [new BearerKey("sk\xe2\x80\xa8" . LEAK_MARKER), "sk\x5c" . 'u2028' . LEAK_MARKER],
+        'a key that is not ASCII, in JSON text that was sealed as one string' => [new BearerKey('clé-' . LEAK_MARKER), "cl\x5c" . 'u00e9-' . LEAK_MARKER],
+        'a key that is not ASCII, in JSON text in capitals' => [new BearerKey('clé-' . LEAK_MARKER), "CL\x5c" . 'u00E9-' . strtoupper(LEAK_MARKER)],
         'the token of a supplier, asked for this attempt' => [new BearerToken((function () {
             $tokens = Talk::tokens();
             $tokens->next = 'token-' . LEAK_MARKER;

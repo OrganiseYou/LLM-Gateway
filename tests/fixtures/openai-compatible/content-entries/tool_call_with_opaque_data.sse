@@ -1,0 +1,14 @@
+data: {"id":"cmpl-example-0001","object":"chat.completion.chunk","created":1795000000,"model":"example-large-1","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}],"usage":null}
+
+data: {"id":"cmpl-example-0001","object":"chat.completion.chunk","created":1795000000,"model":"example-large-1","choices":[{"index":0,"delta":{"content":[{"type":"thinking","thinking":[{"type":"text","text":"The user asks about one city, "}]}]},"finish_reason":null}],"usage":null}
+
+data: {"id":"cmpl-example-0001","object":"chat.completion.chunk","created":1795000000,"model":"example-large-1","choices":[{"index":0,"delta":{"content":[{"type":"thinking","thinking":[{"type":"text","text":"so the lookup tool "}]}]},"finish_reason":null}],"usage":null}
+
+data: {"id":"cmpl-example-0001","object":"chat.completion.chunk","created":1795000000,"model":"example-large-1","choices":[{"index":0,"delta":{"content":[{"type":"thinking","thinking":[{"type":"text","text":"is the way: opaque-tracer."}]},{"type":"text","text":"One"}]},"finish_reason":null}],"usage":null}
+
+data: {"id":"cmpl-example-0001","object":"chat.completion.chunk","created":1795000000,"model":"example-large-1","choices":[{"index":0,"delta":{"content":" moment."},"finish_reason":null}],"usage":null}
+
+data: {"id":"cmpl-example-0001","object":"chat.completion.chunk","created":1795000000,"model":"example-large-1","choices":[{"index":0,"delta":{"tool_calls":[{"id":"AbCdEf123","type":"function","index":0,"function":{"name":"lookup","arguments":"{\"city\":\"Paris\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}
+
+data: [DONE]
+

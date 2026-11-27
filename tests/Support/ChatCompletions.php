@@ -47,6 +47,18 @@ final class ChatCompletions
     ];
 
     /**
+     * The options of a server whose answer holds its reasoning as an entry of the content: the five that row 13 of
+     * the preset entries sets (docs/design/adapters.md, section 9).
+     */
+    public const array CONTENT_ENTRIES_SERVER = [
+        'max_tokens_field' => 'max_tokens',
+        'required_word' => 'any',
+        'tool_result_name' => true,
+        'reasoning_carrier' => 'content_entries',
+        'stream_usage' => 'unasked',
+    ];
+
+    /**
      * @param array<string, bool|int|string> $options
      * @param list<ModelOverride> $overrides
      */

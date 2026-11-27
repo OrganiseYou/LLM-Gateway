@@ -794,7 +794,7 @@ this adapter holds only the options below and the capability options, so a name 
 | `json_schema_key` | `schema`, `schema_definition` | the name under which the schema stands in the response format |
 | `stream_usage` | `on_request`, `unasked` | whether a stream is asked to report its token usage |
 | `store_field` | `omit`, `false` | whether `store: false` is sent. Set the preset's `sendsNoStoreOption` to true exactly when this is `false` |
-| `reasoning_carrier` | `none`, `message_field` | whether reasoning that came beside an answer goes back with that answer in the next round, in the opaque part of `Answer::toMessage()`. A third value, `content_entries`, is not built yet |
+| `reasoning_carrier` | `none`, `message_field`, `content_entries` | whether reasoning that came with an answer goes back with that answer in the next round, in the opaque part of `Answer::toMessage()`, and where it sits: in a field beside the content, or as entries of a content that is a list |
 | `inline_reasoning` | `keep`, `strip` | whether one leading `<think>…</think>` block is cut from the text of an answer |
 | `finish_content_filter` | `withheld`, `unknown` | whether the finish reason `content_filter` means withheld output, or only that the server did not understand why the answer ended |
 | `models_path` | `/models`, or another path under the base URL | where the model list is |
@@ -802,6 +802,20 @@ this adapter holds only the options below and the capability options, so a name 
 
 Set `forced_tool_call` only to say `none` for a model that cannot be forced; any other value must be the one
 `named_tool_choice` gives, or the preset fails as `not_configured`.
+
+**Reasoning that must go back.** Some servers want the reasoning of an answer back in the next round of a tool
+loop. With `message_field` the reasoning is a string beside the content, and it goes back in the same field. With
+`content_entries` the content of the answer is a list of entries, and some are no text (reasoning, a citation, a kind
+of entry the adapter does not know): the adapter keeps the whole list, as the JSON text the server wrote, and sends
+it back as the content of that assistant message. Either way the data travels in the opaque part of the answer, the
+text of the answer is only its text entries, and you do nothing but use `$answer->toMessage()` for the next round. A
+message whose text or tool calls you changed goes back without the data, built from what it holds now. In a stream
+the list arrives in pieces; the adapter joins them into one list before it gives the answer, and no event of the
+stream holds reasoning. A list of more than 1 MiB or of more than 10,000 objects and lists is not kept: the answer
+then comes without the data. A part is only as trustworthy as the transcript it comes from. The library holds no
+secret, so a part with this adapter's mark that someone built by hand can put any list of entries into the content
+of its own assistant message, also kinds of entry the provider acts on; if you keep transcripts where others can
+write, check them before you pass them on.
 
 **When `when_fits` sends `strict: true`.** Only when every part of your schema is something the provider's
 documentation names as accepted. For `standard`: the keywords `type`, `properties`, `required`,
@@ -817,7 +831,10 @@ your whole schema either way.
 What the adapter reads without an option, for every server: an answer whose `content` is a string, `null` or a list
 of entries; tool-call arguments as a string that holds JSON or as an object; a tool call by its presence, whatever
 finish reason came with it; reasoning beside the answer, which never becomes answer text; the usage wherever a
-stream puts it; a stream with or without its closing `data: [DONE]`; and four shapes of an error body. A status 429
+stream puts it; a stream with or without its closing `data: [DONE]`; and four shapes of an error body (an `error`
+object, a flat object with a type and a code, a flat object whose `error` is a word, and a body with only a `detail`,
+as a sentence or as a list with an item per refused field). Only the provider's code is taken from an error body,
+never its sentences. A status 429
 whose body says the account is out of credit ends as `rejected` with the provider's code and is not tried again; one
 that says the provider is overloaded ends as `unavailable`. A finish reason that means "tool calls" on an answer
 without a tool call is given as `other`.

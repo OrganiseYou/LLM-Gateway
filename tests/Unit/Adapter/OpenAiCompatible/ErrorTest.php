@@ -328,3 +328,90 @@ describe('the model list and the error of a failed request', function (): void {
             ->and($transport->requests())->toHaveCount(1);
     });
 });
+
+describe('the three error bodies of a server with a flat error body', function (): void {
+    // docs/providers/mistral.md, "Limits and shapes": a flat object with a type and a number as its code for most
+    // errors, a body with only a sentence under `detail` for a 401, and a list under `detail` for a 422. The
+    // sentences below are made up, and none of them may leave the library.
+    $bodies = [
+        'the flat body, for an unknown model' => [400, '{"object":"error","message":"A sentence of the provider that is never shown: example-large-9","type":"invalid_model","param":null,"code":"1500","raw_status_code":400}', ErrorReason::Rejected, 'invalid_model', 1],
+        'the flat body, for a prompt that is too long' => [400, '{"object":"error","message":"A sentence of the provider that is never shown.","type":"invalid_request_prompt_too_long","param":null,"code":"3059","raw_status_code":400}', ErrorReason::Rejected, 'invalid_request_prompt_too_long', 1],
+        'the flat body, for a billing block' => [402, '{"object":"error","message":"A sentence of the provider that is never shown.","type":"payment_required","param":null,"code":"2308","raw_status_code":402}', ErrorReason::Rejected, 'payment_required', 1],
+        'the flat body with a code and no type' => [402, '{"object":"error","message":"A sentence of the provider that is never shown.","param":null,"code":"2300","raw_status_code":402}', ErrorReason::Rejected, '2300', 1],
+        'the flat body, for a rate limit' => [429, '{"object":"error","message":"A sentence of the provider that is never shown.","type":"rate_limited","param":null,"code":"1300","raw_status_code":429}', ErrorReason::RateLimited, 'rate_limited', 2],
+        'the flat body, for a provider without capacity' => [429, '{"object":"error","message":"A sentence of the provider that is never shown.","type":"backend_out_of_capacity","param":null,"code":"3505","raw_status_code":429}', ErrorReason::Unavailable, 'backend_out_of_capacity', 2],
+        'the flat body, for a server error' => [500, '{"object":"error","message":"A sentence of the provider that is never shown.","type":"internal_server_error","param":null,"code":"1000","raw_status_code":500}', ErrorReason::Unavailable, 'internal_server_error', 2],
+        'a sentence under detail, for a key that is refused' => [401, '{"detail":"A sentence of the provider that is never shown."}', ErrorReason::CredentialsRejected, null, 1],
+        'a list under detail, for a field that is refused' => [422, '{"detail":[{"loc":["body","messages",0,"never_shown_field"],"msg":"A sentence of the provider that is never shown.","type":"never_shown_type","input":"never shown input"}]}', ErrorReason::Rejected, null, 1],
+        'a list under detail with nothing in it' => [422, '{"detail":[]}', ErrorReason::Rejected, null, 1],
+    ];
+
+    it('give their reason and the code of the provider, and nothing of their words', function (int $status, string $body, ErrorReason $reason, ?string $code, int $requests): void {
+        foreach ([false, true] as $asStream) {
+            $clock = new FakeClock();
+            $transport = new FakeTransport($clock);
+            // The same failure twice: what is tried again fails again, and the error is the one of this body.
+            $transport->willReturn(new HttpResponse($status, ['Content-Type' => 'application/json'], $body))
+                ->willReturn(new HttpResponse($status, ['Content-Type' => 'application/json'], $body));
+            $gateway = ChatCompletions::gateway($transport, ChatCompletions::CONTENT_ENTRIES_SERVER, new RetryPolicy([1.0], 60.0), $clock);
+
+            if ($asStream) {
+                $events = Talk::events($gateway->stream(ChatCompletions::request()));
+                $error = Talk::failedIn($events)->error;
+                $shown = json_encode(valueForms($events));
+            } else {
+                $error = Talk::errorOf(fn() => $gateway->complete(ChatCompletions::request()));
+                $shown = '';
+            }
+            $shown .= json_encode([exceptionForms($error), valueForms($error)]);
+
+            expect($error->reason)->toBe($reason)
+                ->and($error->httpStatus)->toBe($status)
+                ->and($error->providerCode)->toBe($code)
+                ->and(count($transport->requests()))->toBe($requests)
+                // Not a word of the body but its code: no sentence, no field name, no input.
+                ->and(stripos($shown, 'never shown'))->toBeFalse()
+                ->and(stripos($shown, 'never_shown'))->toBeFalse()
+                ->and(stripos($shown, 'example-large-9'))->toBeFalse()
+                ->and((string) $error->detail)->not->toContain((string) $code === '' ? 'never' : (string) $code);
+        }
+    })->with($bodies);
+
+    it('never name a provider in what they give: the detail is a sentence of the library or nothing', function (int $status, string $body): void {
+        $transport = (new FakeTransport())->willReturn(new HttpResponse($status, [], $body));
+        $error = Talk::errorOf(fn() => ChatCompletions::gateway($transport, ChatCompletions::CONTENT_ENTRIES_SERVER)->complete(ChatCompletions::request()));
+
+        expect($error->detail)->toBeNull();
+    })->with(array_map(fn(array $case): array => [$case[0], $case[1]], $bodies));
+
+    it('read the flat body as an error under a successful status too, with its code', function (): void {
+        $flat = '{"object":"error","message":"A sentence of the provider that is never shown.","type":"internal_server_error","param":null,"code":"1000","raw_status_code":500}';
+
+        $error = Talk::errorOf(fn() => ChatCompletions::answerTo(new HttpResponse(200, [], $flat), ChatCompletions::CONTENT_ENTRIES_SERVER));
+        $failed = Talk::failedIn(ChatCompletions::eventsOf([ChatCompletions::chunk(['content' => 'Hel']), 'data: ' . $flat . "\n\n"], ChatCompletions::CONTENT_ENTRIES_SERVER))->error;
+
+        foreach ([$error, $failed] as $read) {
+            expect($read->reason)->toBe(ErrorReason::ProviderError)
+                ->and($read->providerCode)->toBe('internal_server_error')
+                ->and($read->getMessage())->not->toContain('never shown');
+        }
+    });
+
+    it('do not take an answer for an error because of the word under object', function (): void {
+        expect(ErrorBody::isIn(['object' => 'chat.completion', 'choices' => []]))->toBeFalse()
+            ->and(ErrorBody::isIn(['object' => 'error']))->toBeTrue()
+            ->and(ErrorBody::isIn(['object' => ['error']]))->toBeFalse()
+            ->and(ErrorBody::isIn(['detail' => 'No.']))->toBeFalse();
+
+        // An error member beside a choice does not throw the answer away, whatever the body calls itself.
+        $answer = ChatCompletions::answerTo(ChatCompletions::answered(more: ['object' => 'error']), ChatCompletions::CONTENT_ENTRIES_SERVER);
+        expect($answer->text)->toBe('Hello.');
+    });
+
+    it('ends an answer that the server ended with its word for an error as a provider error', function (): void {
+        $error = Talk::errorOf(fn() => ChatCompletions::answerTo(ChatCompletions::answered(['role' => 'assistant', 'content' => 'Hel'], 'error'), ChatCompletions::CONTENT_ENTRIES_SERVER));
+
+        expect($error->reason)->toBe(ErrorReason::ProviderError)
+            ->and($error->providerCode)->toBe('error');
+    });
+});

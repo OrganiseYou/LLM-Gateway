@@ -3,10 +3,12 @@
 declare(strict_types=1);
 
 use OrganiseYou\LlmGateway\Adapter\OpenAiCompatible\ChatCompletionsAdapter;
+use OrganiseYou\LlmGateway\Adapter\OpenAiCompatible\ContentEntries;
 use OrganiseYou\LlmGateway\Adapter\OpenAiCompatible\ErrorBody;
 use OrganiseYou\LlmGateway\Adapter\OpenAiCompatible\InlineReasoning;
 use OrganiseYou\LlmGateway\Adapter\OpenAiCompatible\ModelList;
 use OrganiseYou\LlmGateway\Adapter\OpenAiCompatible\Reading;
+use OrganiseYou\LlmGateway\Adapter\Shared\RawJson;
 use OrganiseYou\LlmGateway\Contract\Answer;
 use OrganiseYou\LlmGateway\Contract\Credentials\BearerKey;
 use OrganiseYou\LlmGateway\Contract\Credentials\BearerToken;
@@ -58,6 +60,13 @@ function chatCompletionsLeakOf(string $scenario): array
         ChatCompletions::DONE,
     ];
     $thinking = 'The key of this caller is ' . LEAK_MARKER . ', the path is C:\\keys/' . LEAK_MARKER . '.';
+    // The same reasoning as an entry of the content, beside a citation, an empty object and a number with a fraction.
+    $entries = [['type' => 'thinking', 'thinking' => [['type' => 'text', 'text' => $thinking]]], ['type' => 'reference', 'reference_ids' => [1], 'details' => (object) [], 'score' => 0.5], ['type' => 'text', 'text' => 'Hello.']];
+    // The key as a server could write it in JSON text: every character as an escape with its number.
+    $escaped = '';
+    foreach (str_split(LEAK_MARKER) as $character) {
+        $escaped .= "\x5cu" . sprintf('%04x', ord($character));
+    }
 
     $clock = new FakeClock();
     $transport = new FakeTransport($clock);
@@ -72,6 +81,8 @@ function chatCompletionsLeakOf(string $scenario): array
     $options = match ($scenario) {
         'a stream of a server that does not stream' => ['streaming' => 'emulated'],
         'an answer with reasoning that repeats the key', 'a stream with reasoning that repeats the key' => ['reasoning_carrier' => 'message_field'],
+        'an answer whose content entry repeats the key', 'an answer whose content entry repeats the key, written with escapes',
+        'a stream whose content entries repeat the key', 'a stream whose content entries repeat the key in pieces' => ChatCompletions::CONTENT_ENTRIES_SERVER,
         'an option whose value is the key' => ['system_role' => LEAK_MARKER],
         'a flat error that repeats the key' => ['tool_calling' => 'none'],
         default => [],
@@ -99,6 +110,27 @@ function chatCompletionsLeakOf(string $scenario): array
             case 'an answer with reasoning that repeats the key':
                 $transport->willReturn(new HttpResponse(200, $headers, ChatCompletions::answered(['role' => 'assistant', 'content' => 'Hello.', 'reasoning_content' => $thinking], 'stop', $echo)->body));
                 $left = $gateway->complete($request);
+                break;
+            case 'an answer whose content entry repeats the key':
+                $transport->willReturn(new HttpResponse(200, $headers, ChatCompletions::answered(['role' => 'assistant', 'content' => $entries], 'stop', $echo)->body));
+                $left = $gateway->complete($request);
+                break;
+            case 'an answer whose content entry repeats the key, written with escapes':
+                $entries[0]['thinking'][0]['text'] = 'The key of this caller is written-with-escapes.';
+                $transport->willReturn(new HttpResponse(200, [], str_replace('written-with-escapes', $escaped, ChatCompletions::answered(['role' => 'assistant', 'content' => $entries])->body)));
+                $left = $gateway->complete($request);
+                break;
+            case 'a stream whose content entries repeat the key':
+                $transport->willStream(200, $headers, $stream[0], ChatCompletions::chunk(['content' => [$entries[0]]]), ChatCompletions::chunk(['content' => [$entries[1]]]), $stream[1], $stream[2], $stream[3], $stream[5]);
+                $left = Talk::events($gateway->stream($request));
+                break;
+            case 'a stream whose content entries repeat the key in pieces':
+                $pieces = [];
+                foreach ([substr(LEAK_MARKER, 0, 9), substr(LEAK_MARKER, 9)] as $piece) {
+                    $pieces[] = ChatCompletions::chunk(['content' => [['type' => 'thinking', 'thinking' => [['type' => 'text', 'text' => $piece]]]]]);
+                }
+                $transport->willStream(200, [], str_replace(substr(LEAK_MARKER, 0, 9), substr($escaped, 0, 54), $pieces[0]), $pieces[1], $stream[1], $stream[2], $stream[3], $stream[5]);
+                $left = Talk::events($gateway->stream($request));
                 break;
             case 'a stream':
                 $transport->willStream(200, $headers, ...$stream);
@@ -314,6 +346,11 @@ describe('what leaves complete(), stream() and models() of the chat-completions 
         ['an answer with reasoning that repeats the key', 'answer'],
         ['a stream', 'finished'],
         ['a stream with reasoning that repeats the key', 'finished'],
+        // The same for reasoning that is an entry of the content: the list that held the key is not kept.
+        ['an answer whose content entry repeats the key', 'answer'],
+        ['an answer whose content entry repeats the key, written with escapes', 'answer'],
+        ['a stream whose content entries repeat the key', 'finished'],
+        ['a stream whose content entries repeat the key in pieces', 'finished'],
         ['a stream of a server that does not stream', 'finished'],
         ['a stream that breaks', 'failed: unavailable'],
         ['a stream that is refused', 'failed: credentials_rejected'],
@@ -374,6 +411,68 @@ describe('what leaves complete(), stream() and models() of the chat-completions 
             ->and($answerWith('A thought about "a quoted key".', '"a quoted key"')->opaque)->toBeNull();
     });
 
+    it('keeps an opaque part whose content entries hold no credential, and drops one whose entries hold it', function (): void {
+        $letter = fn(string $character): string => "\x5cu" . sprintf('%04x', ord($character));
+        $answerWith = function (string $thought, string $key, bool $asStream = false): Answer {
+            // The thought is JSON text already: so a test can write it with the escapes of its choice.
+            $content = '[{"type":"thinking","thinking":[{"type":"text","text":"' . $thought . '"}]},{"type":"text","text":"Hello."}]';
+            $transport = new FakeTransport();
+            $gateway = ChatCompletions::gateway($transport, ChatCompletions::CONTENT_ENTRIES_SERVER, credentials: new BearerKey($key));
+            if ($asStream) {
+                $transport->willStream(200, [], 'data: {"choices":[{"index":0,"delta":{"content":' . $content . '},"finish_reason":"stop"}]}' . "\n\n", ChatCompletions::DONE);
+
+                return Talk::finishedIn(Talk::events($gateway->stream(ChatCompletions::request())))->answer;
+            }
+            $transport->willReturn(new HttpResponse(200, [], '{"choices":[{"index":0,"message":{"role":"assistant","content":' . $content . '},"finish_reason":"stop"}]}'));
+
+            return $gateway->complete(ChatCompletions::request());
+        };
+
+        foreach ([false, true] as $asStream) {
+            expect($answerWith('A thought about a/b.', 'key-of-the-test', $asStream)->opaque)->not->toBeNull()
+                ->and($answerWith('A thought about key-of-the-test.', 'key-of-the-test', $asStream)->opaque)->toBeNull()
+                ->and($answerWith('A thought about KEY-of-the-TEST.', 'key-of-the-test', $asStream)->opaque)->toBeNull()
+                // Written with escapes, by the letter or for a slash and a quote: the key is found all the same.
+                ->and($answerWith('A thought about ' . $letter('k') . 'ey-of-the' . $letter('-') . 'test.', 'key-of-the-test', $asStream)->opaque)->toBeNull()
+                ->and($answerWith('A thought about a\\/key.', 'a/key', $asStream)->opaque)->toBeNull()
+                ->and($answerWith('A thought about \\"a quoted key\\".', '"a quoted key"', $asStream)->opaque)->toBeNull()
+                // The answer itself is given either way.
+                ->and($answerWith('A thought about key-of-the-test.', 'key-of-the-test', $asStream)->text)->toBe('Hello.');
+        }
+    });
+
+    it('drops the part when what came with the answer repeats a key that holds a line end of Unicode, on either carrier', function (string $lineEnd, string $number): void {
+        // JSON may write these two characters as they are or as an escape; one of PHP's encoders escapes them.
+        $key = 'abc' . $lineEnd . 'def';
+        foreach (['abc' . $lineEnd . 'def', "abc\x5c" . 'u' . $number . 'def'] as $written) {
+            $entries = '[{"type":"thinking","thinking":[{"type":"text","text":"A thought about ' . $written . '."}]},{"type":"text","text":"Hello."}]';
+            $cases = [
+                [ChatCompletions::CONTENT_ENTRIES_SERVER, '"content":' . $entries],
+                [['reasoning_carrier' => 'message_field'], '"content":"Hello.","reasoning_content":"A thought about ' . $written . '."'],
+            ];
+            foreach ($cases as [$options, $members]) {
+                foreach ([$key, 'another-key'] as $signedInWith) {
+                    $transport = (new FakeTransport())
+                        ->willReturn(new HttpResponse(200, [], '{"choices":[{"index":0,"message":{"role":"assistant",' . $members . '},"finish_reason":"stop"}]}'))
+                        ->willStream(200, [], 'data: {"choices":[{"index":0,"delta":{' . $members . '},"finish_reason":"stop"}]}' . "\n\n", ChatCompletions::DONE);
+                    $gateway = ChatCompletions::gateway($transport, $options, credentials: new BearerKey($signedInWith));
+
+                    $whole = $gateway->complete(ChatCompletions::request());
+                    $streamed = Talk::finishedIn(Talk::events($gateway->stream(ChatCompletions::request())))->answer;
+
+                    // With another key the same answer keeps its part: it is the key that drops it.
+                    expect($whole->opaque === null)->toBe($signedInWith === $key)
+                        ->and($streamed->opaque === null)->toBe($signedInWith === $key)
+                        ->and($whole->text)->toBe('Hello.')
+                        ->and($streamed->text)->toBe('Hello.');
+                }
+            }
+        }
+    })->with([
+        'U+2028' => ["\xe2\x80\xa8", '2028'],
+        'U+2029' => ["\xe2\x80\xa9", '2029'],
+    ]);
+
     it('names the model of the request when the model of an answer repeats a credential or is no name', function (string $model): void {
         $transport = (new FakeTransport())
             ->willReturn(ChatCompletions::answered(more: ['model' => $model]))
@@ -433,6 +532,24 @@ describe('the parameters of the chat-completions adapter that carry a response, 
         'assistantMessage' => [ChatCompletionsAdapter::class, 'assistantMessage', ['message']],
         'toolMessage' => [ChatCompletionsAdapter::class, 'toolMessage', ['message']],
         'reasoningThatCameWith' => [ChatCompletionsAdapter::class, 'reasoningThatCameWith', ['message']],
+        'contentThatCameWith' => [ChatCompletionsAdapter::class, 'contentThatCameWith', ['message']],
+        'sealedContent' => [ChatCompletionsAdapter::class, 'sealedContent', ['text', 'toolCalls', 'body', 'content']],
+        'sealedEntries' => [ChatCompletionsAdapter::class, 'sealedEntries', ['text', 'toolCalls', 'list']],
+        'ContentEntries::holdsMoreThanText' => [ContentEntries::class, 'holdsMoreThanText', ['content']],
+        'ContentEntries::kept' => [ContentEntries::class, 'kept', ['json']],
+        'ContentEntries::isWithinTheLimits' => [ContentEntries::class, 'isWithinTheLimits', ['json']],
+        'ContentEntries::addText' => [ContentEntries::class, 'addText', ['pieces', 'text']],
+        'ContentEntries::addList' => [ContentEntries::class, 'addList', ['pieces', 'json']],
+        'ContentEntries::entriesHoldMoreThanText' => [ContentEntries::class, 'entriesHoldMoreThanText', ['pieces']],
+        'ContentEntries::written' => [ContentEntries::class, 'written', ['pieces']],
+        'RawJson::at' => [RawJson::class, 'at', ['json']],
+        'RawJson::members' => [RawJson::class, 'members', ['json']],
+        'RawJson::items' => [RawJson::class, 'items', ['json']],
+        'RawJson::plain' => [RawJson::class, 'plain', ['json']],
+        'RawJson::containers' => [RawJson::class, 'containers', ['json']],
+        'RawJson::string' => [RawJson::class, 'string', ['text']],
+        'RawJson::object' => [RawJson::class, 'object', ['members']],
+        'RawJson::list' => [RawJson::class, 'list', ['items']],
         'toolFields' => [ChatCompletionsAdapter::class, 'toolFields', ['request']],
         'readCompletion' => [ChatCompletionsAdapter::class, 'readCompletion', ['response', 'request']],
         'readStream' => [ChatCompletionsAdapter::class, 'readStream', ['events', 'request']],

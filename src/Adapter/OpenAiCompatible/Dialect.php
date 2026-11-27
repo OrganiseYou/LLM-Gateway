@@ -17,12 +17,7 @@ use OrganiseYou\LlmGateway\Contract\InvalidValue;
  */
 final readonly class Dialect
 {
-    /**
-     * The options whose value is one word of a fixed list, the default first.
-     *
-     * `reasoning_carrier` has a third value in the adapter map, `content_entries`. It is not built yet, so it is
-     * outside the list here.
-     */
+    /** The options whose value is one word of a fixed list, the default first. */
     private const array WORDS = [
         'max_tokens_field' => ['max_completion_tokens', 'max_tokens'],
         'system_role' => ['system', 'developer'],
@@ -36,7 +31,7 @@ final readonly class Dialect
         'json_schema_key' => ['schema', 'schema_definition'],
         'stream_usage' => ['on_request', 'unasked'],
         'store_field' => ['omit', 'false'],
-        'reasoning_carrier' => ['none', 'message_field'],
+        'reasoning_carrier' => ['none', 'message_field', 'content_entries'],
         'inline_reasoning' => ['keep', 'strip'],
         'finish_content_filter' => ['withheld', 'unknown'],
     ];

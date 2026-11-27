@@ -9,7 +9,8 @@ use SensitiveParameter;
 /**
  * Reads the error body of a server of the chat-completions format. Four shapes are documented, and several servers
  * document none: an `error` object with `code` and `type`, a flat object with `type` and `code`, a flat object
- * whose `error` is a word, and a body with only a `detail`. A body that is not JSON tells nothing.
+ * whose `error` is a word, and a body with only a `detail`, which is a sentence or a list with an item per field
+ * that was refused. A body that is not JSON tells nothing.
  *
  * Only words are taken from a body: never its message.
  */
@@ -35,7 +36,8 @@ final readonly class ErrorBody
 
     /**
      * Whether a body that came with a successful status, or a chunk of a stream, is an error all the same: it
-     * has an `error` that is an object or a word.
+     * has an `error` that is an object or a word, or it is the flat error body that names itself with
+     * `"object": "error"`.
      *
      * @param array<mixed> $body
      */
@@ -43,7 +45,7 @@ final readonly class ErrorBody
     {
         $error = $body['error'] ?? null;
 
-        return (is_array($error) && $error !== []) || (is_string($error) && $error !== '');
+        return (is_array($error) && $error !== []) || (is_string($error) && $error !== '') || ($body['object'] ?? null) === 'error';
     }
 
     /**

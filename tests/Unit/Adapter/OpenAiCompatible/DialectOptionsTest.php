@@ -328,22 +328,28 @@ describe('inline_reasoning and finish_content_filter', function (): void {
 });
 
 describe('reasoning_carrier', function (): void {
-    it('takes the two values that are built', function (array $options): void {
+    it('takes its three values', function (array $options): void {
         expect(ChatCompletions::answerTo(ChatCompletions::answered(), $options)->text)->toBe('Hello.');
     })->with([
         'the default' => [[]],
         'none' => [['reasoning_carrier' => 'none']],
         'message_field' => [['reasoning_carrier' => 'message_field']],
+        'content_entries' => [['reasoning_carrier' => 'content_entries']],
     ]);
 
-    it('has no value content_entries yet: a preset that sets it is not configured', function (): void {
-        $transport = (new FakeTransport())->willReturn(ChatCompletions::answered());
-        $error = Talk::errorOf(fn() => ChatCompletions::gateway($transport, ['reasoning_carrier' => 'content_entries'])->complete(ChatCompletions::request()));
+    it('keeps what came with an answer only where the carrier says where it sits', function (array $options, bool $field, bool $entries): void {
+        $beside = ChatCompletions::answered(['role' => 'assistant', 'content' => 'Hello.', 'reasoning_content' => 'A thought.']);
+        $inside = ChatCompletions::answered(['role' => 'assistant', 'content' => [['type' => 'thinking', 'thinking' => [['type' => 'text', 'text' => 'A thought.']]], ['type' => 'text', 'text' => 'Hello.']]]);
 
-        expect($error->reason)->toBe(ErrorReason::NotConfigured)
-            ->and($error->detail)->toBe('the option reasoning_carrier of the preset has a value outside its list')
-            ->and($transport->requests())->toBe([]);
-    });
+        expect(ChatCompletions::answerTo($beside, $options)->opaque !== null)->toBe($field)
+            ->and(ChatCompletions::answerTo($inside, $options)->opaque !== null)->toBe($entries)
+            ->and(ChatCompletions::answerTo($inside, $options)->text)->toBe('Hello.');
+    })->with([
+        'the default' => [[], false, false],
+        'none' => [['reasoning_carrier' => 'none'], false, false],
+        'message_field' => [['reasoning_carrier' => 'message_field'], true, false],
+        'content_entries' => [['reasoning_carrier' => 'content_entries'], false, true],
+    ]);
 });
 
 describe('a value outside its list', function (): void {

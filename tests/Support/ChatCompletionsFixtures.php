@@ -13,7 +13,7 @@ use OrganiseYou\LlmGateway\Transport\HttpResponse;
 use RuntimeException;
 
 /**
- * The hand-written responses of the chat-completions format, for the shared test set. There are four sets, each
+ * The hand-written responses of the chat-completions format, for the shared test set. There are five sets, each
  * in its own folder under tests/fixtures/openai-compatible; its README says what each set shows.
  */
 final readonly class ChatCompletionsFixtures implements AdapterFixtures
@@ -31,11 +31,17 @@ final readonly class ChatCompletionsFixtures implements AdapterFixtures
     public const string STREAM_WITHOUT_USAGE = 'stream-without-usage';
 
     /**
-     * @param string $set one of the four constants
+     * A server whose answer holds its reasoning as an entry of the content and wants the whole content back; its
+     * tool-call arguments are a string in one answer and an object in another.
+     */
+    public const string CONTENT_ENTRIES = 'content-entries';
+
+    /**
+     * @param string $set one of the five constants
      */
     public function __construct(private string $set = self::PLAIN)
     {
-        if (! in_array($set, [self::PLAIN, self::MINIMAL, self::REASONING, self::STREAM_WITHOUT_USAGE], true)) {
+        if (! in_array($set, [self::PLAIN, self::MINIMAL, self::REASONING, self::STREAM_WITHOUT_USAGE, self::CONTENT_ENTRIES], true)) {
             throw new RuntimeException('There is no such set of fixtures.');
         }
     }
@@ -103,7 +109,7 @@ final readonly class ChatCompletionsFixtures implements AdapterFixtures
      */
     private function name(ContractFixture $fixture): string|NotApplicable|null
     {
-        $withTools = $this->set === self::PLAIN || $this->set === self::REASONING;
+        $withTools = in_array($this->set, [self::PLAIN, self::REASONING, self::CONTENT_ENTRIES], true);
 
         return match ($fixture) {
             ContractFixture::PlainAnswer => 'plain_answer',
@@ -114,7 +120,7 @@ final readonly class ChatCompletionsFixtures implements AdapterFixtures
             ContractFixture::StructuredInvalid => 'structured_invalid',
             ContractFixture::CutOff => 'cut_off',
             ContractFixture::EmptyAnswer => 'empty_answer',
-            ContractFixture::ToolCallWithOpaqueData => $this->set === self::REASONING
+            ContractFixture::ToolCallWithOpaqueData => $this->set === self::REASONING || $this->set === self::CONTENT_ENTRIES
                 ? 'tool_call_with_opaque_data'
                 : new NotApplicable('this server asks nothing back with an answer: its preset sets no reasoning carrier'),
             ContractFixture::Refused => $this->set === self::PLAIN
