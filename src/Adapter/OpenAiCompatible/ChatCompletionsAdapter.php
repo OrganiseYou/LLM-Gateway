@@ -396,7 +396,7 @@ final readonly class ChatCompletionsAdapter extends AbstractAdapter
         foreach (Reading::members($message, 'tool_calls') as $call) {
             if (is_array($call) && is_array($call['function'] ?? null)) {
                 $written[] = $call;
-                $taken[] = Reading::string($call, 'id');
+                $taken[Reading::string($call, 'id')] = true;
             }
         }
         $calls = [];
@@ -405,7 +405,7 @@ final readonly class ChatCompletionsAdapter extends AbstractAdapter
             $id = Reading::string($call, 'id');
             if ($id === '') {
                 $id = Reading::freeId($position, $taken);
-                $taken[] = $id;
+                $taken[$id] = true;
             }
             $calls[] = Reading::toolCall($id, Reading::string($function, 'name'), $function['arguments'] ?? null);
         }
@@ -457,6 +457,10 @@ final readonly class ChatCompletionsAdapter extends AbstractAdapter
         $calls = [];
         $byIndex = [];
         $byId = [];
+        // The ids that are taken (given by the server, or announced), and the calls that are not announced yet:
+        // both kept as they change, so that an answer of many calls is not walked again for every call.
+        $taken = [];
+        $pending = [];
 
         foreach ($events as $event) {
             if (trim($event->data) === '[DONE]') {
@@ -533,14 +537,20 @@ final readonly class ChatCompletionsAdapter extends AbstractAdapter
                 }
                 if ($position === null) {
                     // The calls before it are whole as far as their id and name go: they are announced now.
-                    foreach ($calls as $earlier => $call) {
-                        if ($call['announced'] === null) {
-                            $calls[$earlier]['announced'] = Reading::freeId($earlier, self::idsOf($calls), $call['id']);
-                            yield new ToolCallStarted($earlier, $calls[$earlier]['announced'], $call['name']);
+                    foreach (array_keys($pending) as $earlier) {
+                        $call = $calls[$earlier] ?? null;
+                        if ($call === null) {
+                            continue;
                         }
+                        $call['announced'] = Reading::freeId($earlier, $taken, $call['id']);
+                        $taken[$call['announced']] = true;
+                        $calls[$earlier] = $call;
+                        yield new ToolCallStarted($earlier, $call['announced'], $call['name']);
                     }
+                    $pending = [];
                     $position = count($calls);
                     $calls[] = ['id' => '', 'name' => '', 'arguments' => '', 'whole' => null, 'announced' => null];
+                    $pending[$position] = true;
                 }
                 if ($index !== null) {
                     $byIndex[$index] = $position;
@@ -551,6 +561,7 @@ final readonly class ChatCompletionsAdapter extends AbstractAdapter
                     if ($calls[$position]['id'] === '' && $id !== '') {
                         $calls[$position]['id'] = $id;
                         $byId[$id] = $position;
+                        $taken[$id] = true;
                     }
                     $calls[$position]['name'] .= $name;
                 }
@@ -563,7 +574,9 @@ final readonly class ChatCompletionsAdapter extends AbstractAdapter
 
                 // A call is announced when its arguments begin: its id and its name came before them.
                 if ($calls[$position]['announced'] === null && ($calls[$position]['arguments'] !== '' || $calls[$position]['whole'] !== null)) {
-                    $calls[$position]['announced'] = Reading::freeId($position, self::idsOf($calls), $calls[$position]['id']);
+                    $calls[$position]['announced'] = Reading::freeId($position, $taken, $calls[$position]['id']);
+                    $taken[$calls[$position]['announced']] = true;
+                    unset($pending[$position]);
                     yield new ToolCallStarted($position, $calls[$position]['announced'], $calls[$position]['name']);
                 }
             }
@@ -585,7 +598,8 @@ final readonly class ChatCompletionsAdapter extends AbstractAdapter
         foreach ($calls as $position => $call) {
             $id = $call['announced'];
             if ($id === null) {
-                $id = Reading::freeId($position, self::idsOf($calls), $call['id']);
+                $id = Reading::freeId($position, $taken, $call['id']);
+                $taken[$id] = true;
                 $calls[$position]['announced'] = $id;
                 yield new ToolCallStarted($position, $id, $call['name']);
             }
@@ -631,23 +645,6 @@ final readonly class ChatCompletionsAdapter extends AbstractAdapter
 
         // The word for tool calls on an answer that holds none: a caller that loops on that reason would spin.
         return $reason === FinishReason::ToolCalls ? FinishReason::Other : $reason;
-    }
-
-    /**
-     * The ids the calls of a stream have so far: what the server gave, and what they were announced with.
-     *
-     * @param array<int, array{id: string, name: string, arguments: string, whole: array<mixed>|null, announced: string|null}> $calls
-     * @return list<string>
-     */
-    private static function idsOf(#[SensitiveParameter] array $calls): array
-    {
-        $ids = [];
-        foreach ($calls as $call) {
-            $ids[] = $call['id'];
-            $ids[] = (string) $call['announced'];
-        }
-
-        return $ids;
     }
 
     /**

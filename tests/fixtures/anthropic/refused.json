@@ -1,0 +1,13 @@
+{
+    "id": "msg_example01",
+    "type": "message",
+    "role": "assistant",
+    "model": "example-messages-1",
+    "content": [
+        {"type": "text", "text": "I cannot help with that."}
+    ],
+    "stop_reason": "refusal",
+    "stop_sequence": null,
+    "stop_details": {"type": "refusal", "category": null, "explanation": null},
+    "usage": {"input_tokens": 3, "output_tokens": 2}
+}

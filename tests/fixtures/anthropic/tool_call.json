@@ -1,0 +1,13 @@
+{
+    "id": "msg_example01",
+    "type": "message",
+    "role": "assistant",
+    "model": "example-messages-1",
+    "content": [
+        {"type": "tool_use", "id": "toolu_example01", "name": "lookup", "input": {"city": "Paris"}}
+    ],
+    "stop_reason": "tool_use",
+    "stop_sequence": null,
+    "stop_details": null,
+    "usage": {"input_tokens": 3, "output_tokens": 2}
+}

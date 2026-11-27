@@ -162,3 +162,64 @@ describe('text that is measured before it is read', function (): void {
             ->and(RawJson::string('a' . $lineEnd . 'b'))->toBe('"a' . $lineEnd . 'b"');
     });
 });
+
+describe('a member name that an object holds twice', function (): void {
+    it('is found at any depth, also when one of the two is written with an escape', function (string $json): void {
+        expect(RawJson::hasRepeatedName($json))->toBeTrue();
+    })->with([
+        'at the top' => ['{"a":1,"a":2}'],
+        'in an object of a list' => ['[{"type":"tool_use","id":"x","type":"thinking"}]'],
+        'deep inside' => ['[{"a":{"b":[1,{"c":{"d":true,"e":[],"d":false}}]}}]'],
+        'with white space around the marks' => ['{ "a" : 1 , "b" : { } , "a" : 2 }'],
+        'one of the two written with an escape' => ['{"type":1,"t' . RAW_JSON_ESC . '0079pe":2}'],
+        'an empty name twice' => ['{"":1,"":2}'],
+        'names that are numbers' => ['{"1":"a","1":"b"}'],
+        'after a nested object closed' => ['{"a":{"x":1},"b":[{"y":2}],"a":3}'],
+        'a string that never ends' => ['{"a":"b'],
+    ]);
+
+    it('is not found where every object holds each name once, whatever its strings and values say', function (string $json): void {
+        expect(RawJson::hasRepeatedName($json))->toBeFalse();
+    })->with([
+        'an empty list' => ['[]'],
+        'a string' => ['"a"'],
+        'the same name in two objects' => ['[{"type":"text"},{"type":"text"}]'],
+        'the same name in an object and in the object inside it' => ['{"a":{"a":{"a":1}}}'],
+        'a value that is the same string as a name' => ['{"a":"a","b":"a","c":["a","a"]}'],
+        'marks inside a string' => ['{"a":"{\"a\":1,\"a\":2}","b":"x,\"a\":1"}'],
+        'the same strings in a list' => ['["a","a",{"b":["c","c"]}]'],
+        'a name after a list of strings' => ['{"list":["a","b"],"a":1,"b":2}'],
+        'names that differ in case' => ['{"a":1,"A":2}'],
+        'white space and line ends' => ["{\n  \"a\": {},\n  \"b\": []\n}"],
+    ]);
+
+    it('walks a long text once and keeps only the names of the objects that are open', function (): void {
+        $json = '[' . str_repeat('{"type":"text","text":"a"},', 30_000) . '{"type":"text","text":"a"}]';
+        memory_reset_peak_usage();
+        $before = memory_get_peak_usage();
+
+        expect(RawJson::hasRepeatedName($json))->toBeFalse()
+            ->and(memory_get_peak_usage() - $before)->toBeLessThan(65_536);
+    });
+});
+
+describe('the longest value that is cut out', function (): void {
+    it('gives a value of at most that many bytes, and no longer one', function (): void {
+        $json = '{"content":[1,2,3],"model":"m"}';
+
+        expect(RawJson::at($json, ['content'], 7))->toBe('[1,2,3]')
+            ->and(RawJson::at($json, ['content'], 6))->toBeNull()
+            ->and(RawJson::at($json, ['content', 0], 1))->toBe('1')
+            ->and(RawJson::at($json, ['model'], 0))->toBeNull()
+            ->and(RawJson::at($json, ['content'], null))->toBe('[1,2,3]');
+    });
+
+    it('does not copy a value that is too long', function (): void {
+        $json = '{"content":"' . str_repeat('a', 4_000_000) . '"}';
+        memory_reset_peak_usage();
+        $before = memory_get_peak_usage();
+
+        expect(RawJson::at($json, ['content'], 1_048_576))->toBeNull()
+            ->and(memory_get_peak_usage() - $before)->toBeLessThan(65_536);
+    });
+});

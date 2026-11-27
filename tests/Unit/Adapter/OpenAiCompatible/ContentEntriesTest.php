@@ -823,3 +823,36 @@ describe('the limits of what is kept', function (): void {
             ->and(entriesStreamed($deltas)->text)->toBe('Hello.');
     });
 });
+
+describe('a list in which an object holds a name twice', function (): void {
+    // PHP's decoder and RawJson read the last value of a repeated name; a server may read the first. A list that
+    // two readers can read differently is neither kept nor sent.
+    it('is not kept with an answer, and the answer is read all the same', function (string $content): void {
+        $answer = entriesAnswer($content);
+
+        expect(ContentEntries::kept($content))->toBeNull()
+            ->and($answer->opaque)->toBeNull()
+            ->and($answer->toolCalls)->toHaveCount(1);
+    })->with([
+        'the type of an entry twice' => ['[{"type":"reference","type":"thinking","thinking":[]},{"type":"text","text":"Hello."}]'],
+        'the text of a text entry twice' => ['[{"type":"thinking","thinking":[]},{"text":"first","type":"text","text":"Hello."}]'],
+        'a name twice deep inside an entry' => ['[{"type":"thinking","thinking":[{"type":"text","text":"a","more":{"x":1,"x":2}}]}]'],
+        'one of the two written with an escape' => ['[{"type":"thinking","thinking":[],"t' . ESC . '0079pe":"text"}]'],
+    ]);
+
+    it('is not sent back from a part that was made to fit the message', function (): void {
+        $call = ToolCall::decoded('AbCdEf123', 'lookup', ['city' => 'Paris'], '{"city":"Paris"}');
+        $list = '[{"type":"reference","type":"thinking","thinking":[]},{"text":"first","type":"text","text":""}]';
+        $message = new Message(Role::Assistant, [entriesForgedPart('', [$call], ['content' => $list])], [$call]);
+
+        expect(entriesSentBack($message)['content'])->toBeNull()
+            ->and(str_contains(entriesNextBody($message), 'reference'))->toBeFalse();
+    });
+
+    it('is not kept from a stream whose piece holds one', function (): void {
+        $answer = entriesStreamed(['{"content":[{"type":"thinking","type":"reference","thinking":[]}]}', '{"content":"Hello."}']);
+
+        expect($answer->opaque)->toBeNull()
+            ->and($answer->text)->toBe('Hello.');
+    });
+});

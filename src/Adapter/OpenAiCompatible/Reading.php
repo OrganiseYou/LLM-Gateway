@@ -136,7 +136,8 @@ final readonly class Reading
      * after it when another call of the answer already has that id.
      *
      * @param int $position the place of the call in the answer, from 0
-     * @param list<string> $taken the ids the other calls of the answer have
+     * @param array<array-key, true> $taken the ids the other calls of the answer have, as the names of a set: asking
+     *                                      it costs the same however many calls an answer holds
      * @param string $given the id the server gave, or an empty string
      */
     public static function freeId(int $position, #[SensitiveParameter] array $taken, string $given = ''): string
@@ -146,7 +147,7 @@ final readonly class Reading
         }
 
         $id = 'call_' . $position;
-        for ($suffix = 2; in_array($id, $taken, true); $suffix++) {
+        for ($suffix = 2; isset($taken[$id]); $suffix++) {
             $id = 'call_' . $position . '_' . $suffix;
         }
 

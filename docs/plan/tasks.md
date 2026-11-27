@@ -222,7 +222,7 @@ the adapters cannot be built on the contract of S1 as it is. Section numbers bel
   forms (a string and a map) and both content forms (a string and a list) are covered by fixtures.
 
 ### LG-14 · The Messages adapter
-- Status: todo · Needs: LG-29, LG-30, LG-31, LG-32
+- Status: done · Needs: LG-29, LG-30, LG-31, LG-32
 - Note: From LG-13: `Adapter\Shared\RawJson` cuts a member out of a body as text; anything sealed as one string must pass the size and container limits as text before it is decoded, in both directions and per stream piece (G100).
 - Note: From LG-12: copy its structure (Dialect, Reading, ErrorBody, fixtures builder, the test files under tests/Unit/Adapter/OpenAiCompatible); the base now keeps an echoed credential out of the model name, the model list and tool calls; a finish word for tool calls without a call is `Other`; an allow-list decides when a strict schema mode is sent.
 - Note: From LG-32: take `not` out in the same call as the constraint keywords, write `oneOf` as `anyOf` before sending, use the emulated route when `SchemaShape` says the reduced schema may be tighter (G89), and run `isRecursive()` and `everyObjectIsClosed()` on the copy that is sent.
@@ -247,6 +247,7 @@ the adapters cannot be built on the contract of S1 as it is. Section numbers bel
 - Note: From LG-30: the shared set tests the retry sign only on a 503 and a refusal only with text; the adapter needs its own unit tests for a 429 that forbids a retry and for a refusal without text.
 - Note: From LG-29: an empty JSON object sealed as an array comes back as `[]`; an adapter that must send provider data back unchanged seals the provider's raw JSON text as one string, not the decoded arrays.
 - Note: `structured_output_field` is not confirmed: the provider's pages give three forms (section 4.2).
+- Note: From LG-14: guard sums of usage counts against overflow; refuse a sealed text with a repeated member name (`RawJson`); on the way back send only documented members with the expected type; keep a set of taken call ids.
 - Scope: `Adapter\Gemini\GenerateContentAdapter`, section 4.2, with 5.1 (thought signatures), 5.2 (a blocked prompt
   is `rejected`), 5.6, 5.9 and section 10; one adapter for the three entries `gemini`, `vertex-ai` and
   `vertex-ai-eu`, which differ only in base URL, sign-in and options.
@@ -264,6 +265,7 @@ the adapters cannot be built on the contract of S1 as it is. Section numbers bel
 - Note: From LG-30: the shared set tests the retry sign only on a 503 and a refusal only with text; the adapter needs its own unit tests for a 429 that forbids a retry and for a refusal without text.
 - Note: From LG-29: an empty JSON object sealed as an array comes back as `[]`; an adapter that must send provider data back unchanged seals the provider's raw JSON text as one string, not the decoded arrays.
 - Note: `schema_key` is not confirmed: reference against guide (section 4.3).
+- Note: From LG-14: guard sums of usage counts against overflow; refuse a sealed text with a repeated member name (`RawJson`); on the way back send only documented members with the expected type; keep a set of taken call ids.
 - Scope: `Adapter\Cohere\ChatV2Adapter`, section 4.3, with 5.1 (the tool plan), 5.2, 5.9 and section 10.
 - Extra acceptance: one named tool is forced by sending only that tool; tools with a response format are sent as
   tools with the schema in the system text; a usage count of `12.0` is read as 12; an error in the last stream event
@@ -285,6 +287,7 @@ the adapters cannot be built on the contract of S1 as it is. Section numbers bel
 - Note: From LG-29: an empty JSON object sealed as an array comes back as `[]`; an adapter that must send provider data back unchanged seals the provider's raw JSON text as one string, not the decoded arrays.
 - Note: G59 is decided (2026-11-27): the Responses adapter is built. The entries `openai`, `openai-eu`, `azure-openai` and `grok` use it.
 - Note: Starts only when G59 is decided as (a) or (c); dropped when it is decided as (b). See section 3.
+- Note: From LG-14: guard sums of usage counts against overflow; refuse a sealed text with a repeated member name (`RawJson`); on the way back send only documented members with the expected type; keep a set of taken call ids.
 - Scope: first read the provider's pages on the Responses format for OpenAI Platform, Azure OpenAI and Grok and add
   what is found to their files under `docs/providers/` (the stream events, the item shapes and the error body were
   read only in part). Then `Adapter\OpenAiResponses\ResponsesAdapter`: every request with `store: false`, never
@@ -344,6 +347,7 @@ weight is compared with the provider's page first.
 - Note: G60, G75: add the catalogue `Preset\Presets` (`all()`, `find()`, `ids()`; section 8) with a test that every entry of section 9 that is built is in it, in that order, and every id is unique.
 - Note: G65: LG-17 is dropped; `azure-openai` is an entry on the chat-completions adapter. G59 (open) may later change its adapter.
 - Note: Before the six model overrides of `claude` are written, record the ids of the six models in `docs/providers/anthropic.md` from the provider's page; the file holds their display names and one id form only (section 5.4).
+- Note: From LG-14: the entry must set `api_version` and `default_max_output_tokens`, and `temperature: not_accepted` for the version that refuses one (G104, G105).
 - Scope: the entries `claude`, `gemini`, `vertex-ai`, `vertex-ai-eu`, `cohere`, `mistral`, `mistral-eu` and
   `azure-openai` (section 9, rows 3 to 8, 13, 14). The Microsoft entry says that Copilot has no model API (section 7).
 - Extra acceptance: `vertex-ai` and `azure-openai` resolve their base URL from their settings and also take a base
@@ -366,6 +370,7 @@ weight is compared with the provider's page first.
 - Note: From LG-09: the architecture rule "never runs caller code" reserves the name `Loop\ToolExecutor` for the executor seam; update its list if the loop names it differently.
 - Note: G53: an answer that asks for tool calls has no structured result; only the final answer is checked. A check that goes over its limits comes back as an unusable result, not an exception (G52).
 - Note: From LG-11 (`docs/design/adapters.md` 5.1, 5.2, 5.3, 12): the loop builds the assistant message of the next round with `Answer::toMessage()`, so the opaque part goes back; every tool call of an answer gets a tool message before the next request, also when a limit stops the loop halfway (two providers refuse a partial set); the loop gives no temperature to a model whose capability says it takes none; an answer that ends as `Refusal` or `ContentFilter` ends the loop with a typed outcome.
+- Note: From LG-14: a tool call the adapter could not read goes back to one provider as an empty input; the loop must give the model the error as the tool result (LR-17), with a test.
 - Scope: `src/Loop` (LR-14 to LR-17): calls the model, hands each tool call to the caller's executor, feeds results
   back, stops at an answer or at the caller's limits (rounds, tool calls; no defaults); events for every step; an
   unknown tool name or unreadable arguments go back to the model as a readable error; a final structured answer is
@@ -418,6 +423,7 @@ weight is compared with the provider's page first.
 ### LG-27 · Run the live check with real keys
 - Status: needs-joris · Needs: LG-25
 - Note: From LG-13: how a streamed content list is joined for the `mistral` entry is not confirmed by the provider's file (G100); the live check of LG-27 must cover a streamed answer with thinking and its next round.
+- Note: From LG-14: not confirmed and to be seen live: a thinking list joined from a stream is accepted back; what the provider answers when thinking is left out of the next round.
 - For Joris: run `php live/check.php <preset>` for each provider you have an account for, and write the outcome per
   preset in `docs/providers/live-results.md`. Presets without a run stay marked "not run against the real provider".
 

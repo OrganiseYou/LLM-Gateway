@@ -1,0 +1,13 @@
+{
+    "id": "msg_example01",
+    "type": "message",
+    "role": "assistant",
+    "model": "example-messages-1",
+    "content": [
+        {"type": "text", "text": "{\"city\":\"Par"}
+    ],
+    "stop_reason": "max_tokens",
+    "stop_sequence": null,
+    "stop_details": null,
+    "usage": {"input_tokens": 3, "output_tokens": 2}
+}

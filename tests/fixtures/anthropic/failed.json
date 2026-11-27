@@ -1,0 +1,9 @@
+{
+    "type": "error",
+    "error": {
+        "type": "{{echo}}",
+        "message": "The value {{echo}} was not accepted.",
+        "details": {"error_code": "{{echo}}"}
+    },
+    "request_id": "req_example01"
+}

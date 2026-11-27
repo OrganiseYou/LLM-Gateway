@@ -609,3 +609,43 @@ describe('inline reasoning in a stream', function (): void {
         expect(Talk::finishedIn($events)->answer->text)->toBe('<think>A thought.</think>Hello.');
     });
 });
+
+describe('an answer of very many tool calls', function (): void {
+    // The ids that are taken are kept as a set, and the calls that wait to be announced as a list of their own: an
+    // answer of 30,000 calls is read in one walk. No bound on time here: the test says the answer is right.
+    it('gives every call of a stream its own id, in order, also the calls without an id', function (): void {
+        $chunks = [];
+        for ($at = 0; $at < 30_000; $at++) {
+            $call = ['index' => $at, 'function' => ['name' => 'lookup', 'arguments' => '{"n":' . $at . '}']];
+            if ($at % 3 !== 0) {
+                // An id of the form the adapter gives itself, for the call two places on: it must not be given twice.
+                $call['id'] = $at % 3 === 1 ? 'call_' . ($at + 2) : 'id-' . $at;
+            }
+            $chunks[] = callPiece($call);
+        }
+        $chunks[] = ChatCompletions::chunk([], 'tool_calls');
+        $chunks[] = ChatCompletions::DONE;
+
+        $events = eventsWithTools($chunks);
+        $answer = Talk::finishedIn($events)->answer;
+        $ids = array_map(fn($call): string => $call->id, $answer->toolCalls);
+
+        expect($answer->toolCalls)->toHaveCount(30_000)
+            ->and(count(array_unique($ids)))->toBe(30_000)
+            ->and(array_slice($ids, 0, 4))->toBe(['call_0', 'call_3', 'id-2', 'call_3_2'])
+            ->and($answer->toolCalls[29_999]->arguments)->toBe(['n' => 29_999])
+            ->and(count($events))->toBe(60_001);
+    });
+
+    it('gives every call of a whole answer its own id', function (): void {
+        $calls = [];
+        for ($at = 0; $at < 30_000; $at++) {
+            $calls[] = ['type' => 'function', 'function' => ['name' => 'lookup', 'arguments' => '{"n":' . $at . '}']] + ($at % 2 === 0 ? [] : ['id' => 'call_' . ($at - 1)]);
+        }
+        $answer = ChatCompletions::answerTo(ChatCompletions::answered(['role' => 'assistant', 'content' => null, 'tool_calls' => $calls], 'tool_calls'));
+        $ids = array_map(fn($call): string => $call->id, $answer->toolCalls);
+
+        expect(count(array_unique($ids)))->toBe(30_000)
+            ->and(array_slice($ids, 0, 4))->toBe(['call_0_2', 'call_0', 'call_2_2', 'call_2']);
+    });
+});

@@ -288,10 +288,10 @@ Source for every row: `anthropic.md`, the section named.
 | System text | The texts of the system messages, joined by a blank line, in the top-level `system`. | What a request can do |
 | Messages | Roles `user` and `assistant`. Neighbouring neutral messages that map to the same role become one message. | The shape of a request |
 | Tool results | Every neutral tool message that follows one assistant message becomes one `tool_result` block; together they are one `user` message, the blocks first. An unreadable or failed result is the caller's text; `is_error` is not sent (the contract has no such flag). | The shape of a tool call… |
-| Tool calls | `tool_use` blocks; `input` is an object, so a call is always readable; the raw arguments are its JSON. | same |
+| Tool calls | `tool_use` blocks; `input` is an object, so a call is always readable (see G107); the raw arguments are its JSON. | same |
 | Tool choice | auto → left out; none → `{"type":"none"}`; required → `{"type":"any"}`; one tool → `{"type":"tool","name":…}`. | What a request can do |
 | Maximum tokens | Required by the format. The neutral value when given; otherwise the option `default_max_output_tokens` (5.3). | Limits and shapes |
-| Temperature | Never sent; the capability says "not accepted" (5.3). | Reaching it |
+| Temperature | Never sent (see G105); the capability says "not accepted" (5.3). | Reaching it |
 | Thinking | The adapter never asks for it. `thinking` and `redacted_thinking` blocks that arrive are kept in the opaque part and go back unchanged (5.1). | Limits and shapes |
 | Structured output | Native: `output_config.format` with `json_schema`. The schema policy of 5.9. | Structured output |
 | Stream | Named events; text from `text_delta`; a tool call starts at `content_block_start` and completes at `content_block_stop`; usage from `message_start` and the last `message_delta` (cumulative, so the last value wins); unknown events are skipped; an `error` event is thrown as a failure with its type as code: `overloaded_error` → `unavailable`, `rate_limit_error` → `rate_limited`, any other → `provider_error`. A stream without `message_stop` is a broken stream. | Streaming |
@@ -645,7 +645,7 @@ lists, from its provider file, in its own folder.
 | A1, `strict_subset: narrow` | as above, and also none of the string, number, object and array limits the file lists, depth ≤ 5, properties ≤ 100 | nothing | never | `azure-openai.md`, "What a request can do" |
 | A1, `json_schema_strict: omit` or `false` | `response_format` `json_schema`, the schema as it is | nothing (the accepted keywords are not published) | never | `mistral.md`, `kimi.md`, `aleph-alpha.md`, `lm-studio.md` |
 | A1, `structured_output: emulated` | none | | always | `grok.md`, `stackit.md`, `lighton.md`, the customer-run three |
-| A2 | `output_config.format` | `minimum`, `maximum`, `multipleOf`, `minLength`, `maxLength`, `maxItems`, `minItems` above 1, `uniqueItems`; `oneOf` is written as `anyOf`; `not` is taken out | the schema is recursive, has an external `$ref`, a non-scalar `enum` value, or an object that is not closed | `anthropic.md`, "What a request can do", "Structured output" |
+| A2 | `output_config.format` | `minimum`, `maximum`, `multipleOf`, `minLength`, `maxLength`, `maxItems`, `minItems` above 1, `uniqueItems`; `oneOf` is written as `anyOf`; `not` is taken out | the schema is recursive, has an external `$ref`, a non-scalar `enum` value, or an object that is not closed (G110) | `anthropic.md`, "What a request can do", "Structured output" |
 | A3 | the field of `structured_output_field` | nothing: unsupported keywords are ignored by the provider, not refused | never; a schema too large or too deep is the provider's 400, `rejected` | `gemini.md`, "Schema dialect" |
 | A4 | `response_format` `json_object` with a schema | `minimum`, `maximum`, `minItems`, `maxItems`, `minLength`, `maxLength`, `uniqueItems`, a `format` other than `date-time`, `uuid`, `date`, `time`; `oneOf` is written as `anyOf`; `not` is taken out | the schema uses `allOf`, an object has no required property, a `pattern` holds `^`, `$`, `?=` or `?!`, or the request also has tools | `cohere.md`, "Structured output: schema rules" |
 

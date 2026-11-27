@@ -36,8 +36,9 @@ final readonly class RawJson
      * is walked in place: no child but the one that is asked for is copied.
      *
      * @param list<int|string> $path
+     * @param int|null $atMost the most bytes the value may have; a longer one gives null, and is not copied
      */
-    public static function at(#[SensitiveParameter] string $json, array $path): ?string
+    public static function at(#[SensitiveParameter] string $json, array $path, ?int $atMost = null): ?string
     {
         $from = strspn($json, self::WHITESPACE);
         $to = self::endOfValue($json, $from);
@@ -66,7 +67,68 @@ final readonly class RawJson
             [$from, $to] = $found;
         }
 
-        return $to === null ? null : substr($json, $from, $to - $from);
+        return $to === null || ($atMost !== null && $to - $from > $atMost) ? null : substr($json, $from, $to - $from);
+    }
+
+    /**
+     * Whether an object anywhere in the text holds the same member name twice. Names are compared as the strings
+     * they are, so a name written with an escape is the name it spells.
+     *
+     * JSON does not say which value of a repeated name counts: PHP's decoder and this class take the last, another
+     * reader may take the first. Text that is checked here and then sent on as it is must therefore hold no name
+     * twice, or what was checked is not what the other side reads.
+     *
+     * The text is walked once, in place. A string that never ends is no JSON and gives true: such a text is
+     * refused like one with a repeated name.
+     */
+    public static function hasRepeatedName(#[SensitiveParameter] string $json): bool
+    {
+        $length = strlen($json);
+        // Per object or list that is open: the names seen so far (null for a list), and whether a name comes next.
+        $seen = [];
+        $nameNext = [];
+        $depth = -1;
+        $at = 0;
+
+        while (true) {
+            $at += strcspn($json, '"{}[],', $at);
+            if ($at >= $length) {
+                return false;
+            }
+
+            $mark = $json[$at];
+            if ($mark === '"') {
+                $end = self::endOfString($json, $at);
+                if ($end === null) {
+                    return true;
+                }
+                if ($depth >= 0 && $seen[$depth] !== null && $nameNext[$depth]) {
+                    $name = json_decode(substr($json, $at, $end - $at));
+                    if (! is_string($name) || isset($seen[$depth][$name])) {
+                        return true;
+                    }
+                    $seen[$depth][$name] = true;
+                    $nameNext[$depth] = false;
+                }
+                $at = $end;
+
+                continue;
+            }
+
+            if ($mark === '{' || $mark === '[') {
+                $depth++;
+                $seen[$depth] = $mark === '{' ? [] : null;
+                $nameNext[$depth] = $mark === '{';
+            } elseif ($mark === ',') {
+                if ($depth >= 0 && $seen[$depth] !== null) {
+                    $nameNext[$depth] = true;
+                }
+            } elseif ($depth >= 0) {
+                unset($seen[$depth], $nameNext[$depth]);
+                $depth--;
+            }
+            $at++;
+        }
     }
 
     /**

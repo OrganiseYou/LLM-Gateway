@@ -88,6 +88,11 @@ final readonly class ContentEntries
         if (! json_validate($json) || ($json[strspn($json, " \t\n\r")] ?? '') !== '[') {
             return null;
         }
+        // An object that holds a name twice is read by its last value here and may be read by its first elsewhere:
+        // a list that two readers can read differently is not kept and not sent.
+        if (RawJson::hasRepeatedName($json)) {
+            return null;
+        }
 
         $list = RawJson::plain($json);
         $entries = $list === null ? null : RawJson::items($list);
@@ -146,7 +151,7 @@ final readonly class ContentEntries
     public static function addList(#[SensitiveParameter] array &$pieces, #[SensitiveParameter] string $json): bool
     {
         // Measured as text before it is cut into its entries, with what was kept before it.
-        if (strlen($json) + $pieces['bytes'] > self::LIMIT_BYTES || ! self::isWithinTheLimits($json)) {
+        if (strlen($json) + $pieces['bytes'] > self::LIMIT_BYTES || ! self::isWithinTheLimits($json) || RawJson::hasRepeatedName($json)) {
             return false;
         }
 

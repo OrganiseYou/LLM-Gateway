@@ -91,9 +91,32 @@ All notable changes to this package are written here. The format follows
   of the credential as an escape with its number; such a part is dropped, as every part that holds a credential.
 - The chat-completions adapter reads the flat error body that names itself with `"object": "error"` also under a
   successful status and as a chunk of a stream: such a call ends as `provider_error` with the provider's code.
+- `Adapter\Anthropic\MessagesAdapter`: the second shipped adapter, for the Messages format
+  (`POST {base}/v1/messages`), with its model list (`GET {base}/v1/models`). It sends a closed list of fields
+  (`model`, `max_tokens`, `system`, `messages`, `tools`, `tool_choice`, `output_config`, `temperature`, `stream`) and
+  the version header of the format. A preset on it must set two options of its own: `api_version` and
+  `default_max_output_tokens`, the maximum the adapter sends for a request that gives none, because the format
+  requires one. System messages go into the top-level `system`, neighbouring messages of one role become one
+  message, and the tool results of one round are one user message. A transcript that ends with an assistant message,
+  or holds only system messages, is refused as `rejected` before anything is sent. Thinking that arrives with an answer never becomes answer text:
+  the list of content blocks it stands in travels in the opaque part, as the JSON text the server wrote, and goes
+  back only with the message it came with, and only when every block has exactly the members the provider documents
+  for its kind; in a stream the blocks are joined from their pieces first. Structured
+  output is native: the schema is sent without the constraint keywords the format refuses, a schema the format
+  cannot take (recursive, an object that is not closed, a reference to another document) goes into the system text
+  for that one request, and the answer is checked against the caller's whole schema either way. A status 429 whose
+  code says the spend cap was reached is `rejected` and not tried again, a response with `x-should-retry: false` is
+  not tried again and tells no wait, and an `error` event in a stream ends it with the reason of its type. No preset
+  ships with it yet. The README lists its options.
+- `Adapter\Shared\RawJson::hasRepeatedName()` tells whether an object anywhere in a JSON text holds the same member
+  name twice, and `RawJson::at()` takes an optional longest length, so a value that is too long is not copied.
 
 ### Changed
 
+- An answer of very many tool calls is read in one walk by the chat-completions adapter: the ids that are taken are
+  kept as a set. 30,000 calls took close to a minute before and take under a second now. The ids are the same.
+- `reasoning_carrier: content_entries`: a content list in which an object holds the same member name twice is no
+  longer kept with an answer, and is never sent back (see Security).
 - **Breaking:** a `match` over `Contract\FinishReason` without a default arm must handle the new case `Refusal`.
 - **Breaking, for a host that wrote its own classes for the shared test set:** a class that implements
   `Testing\AdapterFixtures` must add `retryForbidden()` (answer `NotApplicable` when the format has no such sign)
@@ -105,6 +128,11 @@ All notable changes to this package are written here. The format follows
   a header itself which a field of its preset also fills is refused with a `WrongUse` before anything is sent.
 
 ### Security
+
+- Data of a provider that is kept as text and sent back as it is (the content list of `reasoning_carrier:
+  content_entries`, the content blocks of the Messages adapter) is refused when an object in it holds the same
+  member name twice. JSON does not say which of the two values counts, so the library could check one and a server
+  read the other: a part built by hand could show the adapter a harmless entry and the server another one.
 
 - A credential that a server repeats no longer reaches a caller through the model name of an answer, the model list
   or a tool call, for every adapter built on the adapter base. A model name that holds a credential or a control

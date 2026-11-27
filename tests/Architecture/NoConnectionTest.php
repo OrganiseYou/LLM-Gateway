@@ -375,6 +375,7 @@ function testFilesThatReadFilesOfTheRepository(): array
         'Support/SourceCode.php' => 'lists the source files for the architecture rules',
         'Support/TalkFixtures.php' => 'reads the hand-written fixtures under tests/fixtures/talk',
         'Support/ChatCompletionsFixtures.php' => 'reads the hand-written fixtures under tests/fixtures/openai-compatible',
+        'Support/MessagesFixtures.php' => 'reads the hand-written fixtures under tests/fixtures/anthropic',
         'Support/ReadmeSamples.php' => 'reads README.md, whose samples the tests under tests/Readme execute',
     ];
 }
