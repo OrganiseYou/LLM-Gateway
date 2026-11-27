@@ -305,7 +305,7 @@ its link, its option not to store and its storage note; its options are those of
 and its capabilities those of section 6.2; a test builds a gateway from it with the fake transport and gets an
 answer.**
 
-Every entry is one file `src/Preset/Catalogue/<Name>.php` (section 8). The wording of `description`, `dataLocation`
+Every entry is one file `tests/Presets/<Name>.php` (G140: the library ships no presets; the catalogue belongs to the Laravel package on top, see `docs/laravel-package-briefing.md`). The wording of `description`, `dataLocation`
 and `storageNote` comes from the "Data" section of the provider's file (sections 7 and 11); a quote that carries
 weight is compared with the provider's page first.
 
@@ -343,6 +343,8 @@ weight is compared with the provider's page first.
 
 ### LG-21 · Presets: Claude, Gemini and Vertex AI, Cohere, Mistral, Microsoft Copilot / Azure OpenAI
 - Status: todo · Needs: LG-13, LG-14, LG-15, LG-16
+- Note: 2026-11-27, at the owner's request the entries `mistral`, `mistral-eu` and `claude` were built first, ahead of LG-16 and LG-34, and under tests/ only (G140); the other entries of this task follow.
+- Note: G140: no catalogue class `Preset\Presets` is built.
 - Note: From LG-15: the three entries differ only in base URL, sign-in and options; the `vertex-ai` base URLs carry the publisher path, and a model name is a bare id (G113); `structured_output_field` is an option and not confirmed.
 - Note: From LG-13: how a streamed content list is joined for the `mistral` entry is not confirmed by the provider's file (G100); the live check of LG-27 must cover a streamed answer with thinking and its next round.
 - Note: From LG-31: no field of an entry names a header that carries a credential at that provider (the neutral reserved list cannot know provider header names).
@@ -370,6 +372,7 @@ weight is compared with the provider's page first.
 
 ### LG-22 · The tool loop
 - Status: todo · Needs: LG-09
+- Note: From the presets: see the open decision on a required tool call for models without a forced call; the loop must not assume `required` works where `forcedToolCall` is none.
 - Note: From LG-15: a supplier token with a space or non-ASCII bytes reaches the sign-in header through the base, and one stream event has no size cap in the base; neither is fixed yet.
 - Note: From LG-09: the architecture rule "never runs caller code" reserves the name `Loop\ToolExecutor` for the executor seam; update its list if the loop names it differently.
 - Note: G53: an answer that asks for tool calls has no structured result; only the final answer is checked. A check that goes over its limits comes back as an unusable result, not an exception (G52).
@@ -426,6 +429,7 @@ weight is compared with the provider's page first.
 
 ### LG-27 · Run the live check with real keys
 - Status: needs-joris · Needs: LG-25
+- Note: From the presets: not confirmed and to be seen live: the `/v1` path and the key on the EU host of Mistral; the characters a workspace id of Claude can hold (the pattern is the design's).
 - Note: From LG-15: not confirmed and to be seen live: whether the skip value is accepted for a hand-built call; whether a parts list joined from a stream is taken back; what real call ids look like and whether results match without an id; which structured-output field counts; whether an empty text part or two `user` contents in a row are accepted.
 - Note: From LG-13: how a streamed content list is joined for the `mistral` entry is not confirmed by the provider's file (G100); the live check of LG-27 must cover a streamed answer with thinking and its next round.
 - Note: From LG-14: not confirmed and to be seen live: a thinking list joined from a stream is accepted back; what the provider answers when thinking is left out of the next round.

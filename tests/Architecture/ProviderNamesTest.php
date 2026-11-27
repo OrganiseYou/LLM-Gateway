@@ -140,10 +140,11 @@ function providerNamesIn(string $code): array
 
 /**
  * The files of the library in which no provider may be named, of any kind (a JSON or a text file counts as much as
- * a PHP file): all of src, except the adapter of a format
- * (src/Adapter/<Format>, but not src/Adapter/Shared) and the preset data (src/Preset, but not its four value
- * classes). So src/Contract, src/Loop, src/Testing, src/Transport, src/Adapter/Shared and the files directly under
- * src are in it, and so is a folder that is added later.
+ * a PHP file): all of src, except the adapter of a format (src/Adapter/<Format>, but not src/Adapter/Shared). The
+ * library ships no presets (decision G140): src/Preset holds only the neutral value classes, and the definitions of
+ * the tested providers stand under tests/Presets, which this rule does not read. So src/Contract, src/Loop,
+ * src/Testing, src/Transport, src/Preset, src/Adapter/Shared and the files directly under src are in it, and so is a
+ * folder that is added later.
  *
  * @return list<string> paths under src
  */
@@ -153,9 +154,7 @@ function filesWithoutProviderNames(string $src): array
     foreach (SourceCode::filesUnder($src) as $path) {
         $relative = substr($path, strlen($src) + 1);
         $ofOneFormat = str_starts_with($relative, 'Adapter/') && ! str_starts_with($relative, 'Adapter/Shared/');
-        $presetData = str_starts_with($relative, 'Preset/')
-            && ! in_array($relative, ['Preset/Preset.php', 'Preset/PresetField.php', 'Preset/BaseUrlRule.php', 'Preset/ModelOverride.php'], true);
-        if (! $ofOneFormat && ! $presetData) {
+        if (! $ofOneFormat) {
             $neutral[] = $relative;
         }
     }
@@ -163,11 +162,11 @@ function filesWithoutProviderNames(string $src): array
     return $neutral;
 }
 
-it('names no provider in the contract, the loop, the testing tools, the transport, the shared adapter code, the preset values and the root files', function (): void {
+it('names no provider in the contract, the loop, the testing tools, the transport, the shared adapter code, the preset classes and the root files', function (): void {
     $src = dirname(__DIR__, 2) . '/src';
     $files = filesWithoutProviderNames($src);
 
-    foreach (['Contract/', 'Testing/', 'Transport/', 'Adapter/Shared/', 'Preset/Preset.php', 'Preset/ModelOverride.php', 'GatewayFactory.php'] as $expected) {
+    foreach (['Contract/', 'Testing/', 'Transport/', 'Adapter/Shared/', 'Preset/', 'GatewayFactory.php'] as $expected) {
         expect(array_filter($files, fn(string $file): bool => str_starts_with($file, $expected)))
             ->not->toBe([], 'the rule must have found the files of ' . $expected);
     }
@@ -183,13 +182,13 @@ it('names no provider in the contract, the loop, the testing tools, the transpor
     expect($findings)->toBe([]);
 });
 
-it('leaves the adapter of one format and the preset data free to name their provider, and nothing else', function (): void {
+it('leaves the adapter of one format free to name its provider, and nothing else', function (): void {
     $src = dirname(__DIR__, 2) . '/src';
     $all = array_map(fn(string $path): string => substr($path, strlen($src) + 1), SourceCode::filesUnder($src));
     $free = array_values(array_diff($all, filesWithoutProviderNames($src)));
 
     foreach ($free as $file) {
-        expect(preg_match('/^(Adapter\/(?!Shared\/)[A-Za-z0-9]+\/|Preset\/)/', $file))->toBe(1, $file . ' may name a provider and is no adapter of a format and no preset');
+        expect(preg_match('/^Adapter\/(?!Shared\/)[A-Za-z0-9]+\//', $file))->toBe(1, $file . ' may name a provider and is no adapter of a format');
     }
     expect($free)->not->toContain('Preset/Preset.php');
 });
