@@ -6,6 +6,7 @@ namespace OrganiseYou\LlmGateway\Transport;
 
 use Error;
 use Generator;
+use OrganiseYou\LlmGateway\Contract\ForeignFault;
 use Psr\Http\Client\ClientExceptionInterface;
 use Psr\Http\Client\ClientInterface;
 use Psr\Http\Message\RequestFactoryInterface;
@@ -346,7 +347,7 @@ final readonly class Psr18Transport implements Transport
     /**
      * The error that stands for a fault in the code of the client or of its message classes. It is made here,
      * outside the catch that dropped the original, and gets only a class name: nothing of the original, its
-     * text or its trace, is in it.
+     * text or its trace, is in it, and its own trace keeps no argument of any call.
      *
      * @param class-string $class
      */
@@ -355,7 +356,8 @@ final readonly class Psr18Transport implements Transport
         // An anonymous class carries the path of its file after a null byte.
         $name = strstr($class, "\0", true);
 
-        return new Error(
+        // Built while the request with its revealed headers is on the stack: no argument stays in the trace.
+        return new ForeignFault(
             'The HTTP client or its message classes failed with an error of class ' . ($name === false ? $class : $name) . '.',
         );
     }

@@ -100,6 +100,41 @@ it('keeps the trace id of a scripted answer when the request gives none, and mak
         ->and($fake->complete(requestOfTheFake(traceId: null))->traceId)->toMatch('/^[0-9a-f]{32}$/');
 });
 
+it('reports no usage for a scripted text unless the test gives one', function (): void {
+    $fake = (new FakeGateway())->willAnswerText('One.')->willAnswerText('Two.', new Usage(12, 5))->willAnswerText('Three.', new Usage(null, 7));
+
+    $one = $fake->complete(requestOfTheFake());
+    $two = $fake->complete(requestOfTheFake());
+    $three = $fake->complete(requestOfTheFake());
+
+    expect($one->usage)->toEqual(new Usage(null, null))
+        ->and($two->text)->toBe('Two.')
+        ->and($two->usage)->toEqual(new Usage(12, 5))
+        ->and($two->finishReason)->toBe(FinishReason::Stop)
+        ->and($two->model)->toBe('model-a')
+        ->and($two->traceId)->toBe('trace-1')
+        ->and($three->usage)->toEqual(new Usage(null, 7))
+        ->and($fake->remaining())->toBe(0);
+});
+
+it('reports the usage of a scripted text once when it is read as a stream, and checks its text as any other', function (): void {
+    $fake = (new FakeGateway())->willAnswerText('{"city":"Paris"}', new Usage(12, 5))->willAnswerText('Hello.');
+
+    $events = Talk::events($fake->stream(requestOfTheFake(formatForTheFake())));
+    $without = Talk::events($fake->stream(requestOfTheFake()));
+
+    expect(array_map(get_class(...), $events))->toBe([TextDelta::class, UsageReported::class, StreamFinished::class])
+        ->and($events[1])->toEqual(new UsageReported(new Usage(12, 5)))
+        ->and(Talk::finishedIn($events)->answer->usage)->toEqual(new Usage(12, 5))
+        ->and(Talk::finishedIn($events)->answer->structured?->isUsable())->toBeTrue()
+        ->and(array_map(get_class(...), $without))->toBe([TextDelta::class, StreamFinished::class]);
+});
+
+it('refuses a scripted text that is not valid UTF-8, with or without usage', function (): void {
+    expect(fn() => (new FakeGateway())->willAnswerText("\xFF"))->toThrow(InvalidArgumentException::class)
+        ->and(fn() => (new FakeGateway())->willAnswerText("\xFF", new Usage(1, 1)))->toThrow(InvalidArgumentException::class);
+});
+
 it('answers with scripted tool calls', function (): void {
     $call = ToolCall::decoded('call_0', 'lookup', ['city' => 'Paris'], '{"city":"Paris"}');
     $answer = (new FakeGateway())->willCallTools($call)->complete(requestOfTheFake(tools: true));

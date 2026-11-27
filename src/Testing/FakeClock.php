@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace OrganiseYou\LlmGateway\Testing;
 
-use InvalidArgumentException;
+use OrganiseYou\LlmGateway\Contract\InvalidValue;
 use OrganiseYou\LlmGateway\Transport\Clock;
 
 /**
@@ -26,7 +26,7 @@ final class FakeClock implements Clock
         private readonly int $unixStart = 1_800_000_000,
     ) {
         if (! is_finite($monotonicStart)) {
-            throw new InvalidArgumentException('The start of the monotonic time must be a finite number.');
+            throw new InvalidValue('The start of the monotonic time must be a finite number.');
         }
     }
 
@@ -52,7 +52,7 @@ final class FakeClock implements Clock
     public function advance(float $seconds): void
     {
         if (! is_finite($seconds) || $seconds < 0.0) {
-            throw new InvalidArgumentException('The seconds must be a finite number of 0 or more.');
+            throw new InvalidValue('The seconds must be a finite number of 0 or more.');
         }
 
         $this->elapsed += $seconds;

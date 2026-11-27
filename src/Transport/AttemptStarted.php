@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace OrganiseYou\LlmGateway\Transport;
 
-use InvalidArgumentException;
+use OrganiseYou\LlmGateway\Contract\InvalidValue;
 use OrganiseYou\LlmGateway\Contract\Operation;
 
 /**
@@ -25,7 +25,7 @@ final readonly class AttemptStarted
         public HttpRequest $request,
     ) {
         if ($attempt < 1) {
-            throw new InvalidArgumentException('The attempt must be 1 or more.');
+            throw new InvalidValue('The attempt must be 1 or more.');
         }
     }
 }

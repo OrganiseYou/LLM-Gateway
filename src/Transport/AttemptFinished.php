@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace OrganiseYou\LlmGateway\Transport;
 
-use InvalidArgumentException;
+use OrganiseYou\LlmGateway\Contract\InvalidValue;
 use OrganiseYou\LlmGateway\Contract\Operation;
 use SensitiveParameter;
 
@@ -35,15 +35,15 @@ final readonly class AttemptFinished
         public int $durationMs,
     ) {
         if ($attempt < 1) {
-            throw new InvalidArgumentException('The attempt must be 1 or more.');
+            throw new InvalidValue('The attempt must be 1 or more.');
         }
         if (($outcome === AttemptOutcome::TransportError) !== ($transportFailure !== null)) {
-            throw new InvalidArgumentException(
+            throw new InvalidValue(
                 'A transport failure goes with the outcome transport_error, and only with it.',
             );
         }
         if ($durationMs < 0) {
-            throw new InvalidArgumentException('The duration must be 0 or more.');
+            throw new InvalidValue('The duration must be 0 or more.');
         }
     }
 }

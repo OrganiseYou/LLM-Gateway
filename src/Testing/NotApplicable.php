@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace OrganiseYou\LlmGateway\Testing;
 
-use InvalidArgumentException;
+use OrganiseYou\LlmGateway\Contract\InvalidValue;
 
 /**
  * What the fixtures of a format give in place of a fixture the format cannot have, with the reason. The shared
@@ -18,7 +18,7 @@ final readonly class NotApplicable
     public function __construct(public string $reason)
     {
         if (trim($reason) === '') {
-            throw new InvalidArgumentException('Say why the scenario does not apply to this format.');
+            throw new InvalidValue('Say why the scenario does not apply to this format.');
         }
     }
 }

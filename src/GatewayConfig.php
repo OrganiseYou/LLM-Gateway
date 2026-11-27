@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace OrganiseYou\LlmGateway;
 
 use InvalidArgumentException;
+use OrganiseYou\LlmGateway\Contract\InvalidValue;
 use OrganiseYou\LlmGateway\Contract\RetryPolicy;
 use OrganiseYou\LlmGateway\Transport\AttemptObserver;
 use OrganiseYou\LlmGateway\Transport\Clock;
@@ -46,7 +47,7 @@ final readonly class GatewayConfig
     {
         foreach ($settings as $key => $value) {
             if (! is_string($key) || ! is_string($value)) {
-                throw new InvalidArgumentException('The settings must be strings by string keys.');
+                throw new InvalidValue('The settings must be strings by string keys.');
             }
         }
     }
@@ -62,7 +63,7 @@ final readonly class GatewayConfig
             }
         }
         if (! $valid) {
-            throw new InvalidArgumentException(
+            throw new InvalidValue(
                 'The base URL must be an absolute http or https URL with a host, without user info, query or fragment.',
             );
         }

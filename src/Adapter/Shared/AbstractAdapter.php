@@ -7,8 +7,6 @@ namespace OrganiseYou\LlmGateway\Adapter\Shared;
 use Error;
 use Exception;
 use Generator;
-use InvalidArgumentException;
-use LogicException;
 use OrganiseYou\LlmGateway\Contract\Answer;
 use OrganiseYou\LlmGateway\Contract\Capabilities;
 use OrganiseYou\LlmGateway\Contract\ConnectionReport;
@@ -20,9 +18,11 @@ use OrganiseYou\LlmGateway\Contract\Credentials\NoCredentials;
 use OrganiseYou\LlmGateway\Contract\Credentials\TokenSupplierFailed;
 use OrganiseYou\LlmGateway\Contract\ErrorReason;
 use OrganiseYou\LlmGateway\Contract\FinishReason;
+use OrganiseYou\LlmGateway\Contract\ForeignFault;
 use OrganiseYou\LlmGateway\Contract\Gateway;
 use OrganiseYou\LlmGateway\Contract\GatewayException;
 use OrganiseYou\LlmGateway\Contract\Internal\Rules;
+use OrganiseYou\LlmGateway\Contract\InvalidValue;
 use OrganiseYou\LlmGateway\Contract\ModelInfo;
 use OrganiseYou\LlmGateway\Contract\Operation;
 use OrganiseYou\LlmGateway\Contract\Request;
@@ -39,6 +39,7 @@ use OrganiseYou\LlmGateway\Contract\Support;
 use OrganiseYou\LlmGateway\Contract\ToolCall;
 use OrganiseYou\LlmGateway\Contract\ToolChoiceMode;
 use OrganiseYou\LlmGateway\Contract\Usage;
+use OrganiseYou\LlmGateway\Contract\WrongUse;
 use OrganiseYou\LlmGateway\GatewayConfig;
 use OrganiseYou\LlmGateway\GatewayFactory;
 use OrganiseYou\LlmGateway\Preset\Preset;
@@ -138,8 +139,9 @@ abstract readonly class AbstractAdapter implements Gateway
 
         try {
             $template = $this->modelsRequest($timeoutSeconds);
-        } catch (GatewayException $refusal) {
-            throw $this->error($refusal->reason, $traceId, null, $refusal->providerCode, null, 0, $refusal->detail);
+        } catch (Throwable $thrown) {
+            // What is thrown here is new: nothing of what the adapter threw is chained to it or copied into it.
+            throw $this->insteadOfWhatBuildingThrew($thrown, $traceId);
         }
         if ($template === null) {
             throw $this->error(ErrorReason::NotSupported, $traceId, null, null, null, 0, 'the models cannot be listed here');
@@ -147,7 +149,7 @@ abstract readonly class AbstractAdapter implements Gateway
 
         $models = $this->exchange(Operation::Models, $this->owned($template), null, $traceId, $started, $started + $timeoutSeconds);
         if ($models instanceof Answer) {
-            throw new LogicException('The model list was read as an answer.');
+            throw new WrongUse('The model list was read as an answer.');
         }
 
         return $models;
@@ -188,7 +190,9 @@ abstract readonly class AbstractAdapter implements Gateway
      * comes from url(). The sign-in header and the time left are added by the base for every attempt; whatever
      * timeout is given here is replaced.
      *
-     * A value the format cannot carry is refused by throwing failure(ErrorReason::Rejected, …).
+     * A value the format cannot carry is refused by throwing failure(ErrorReason::Rejected, …). Catch what your own
+     * code can throw here (an encoder that refuses a text, for example) and refuse it that way: any other exception
+     * that leaves this method ends the call as provider_error with a fixed detail, and an error as a fault in code.
      *
      * @param bool $stream true when the answer is asked as a stream; only when the capabilities say the model
      *                     streams natively
@@ -280,10 +284,10 @@ abstract readonly class AbstractAdapter implements Gateway
     final protected function url(string $path, array $query = []): string
     {
         if (preg_match('/^\/[A-Za-z0-9._~!$&\'()*+,;=:@%\/-]*$/D', $path) !== 1) {
-            throw new InvalidArgumentException('A path must start with a slash and hold only characters of a URL path.');
+            throw new InvalidValue('A path must start with a slash and hold only characters of a URL path.');
         }
         if (preg_match('/(?:^|\/)(?:\.|%2e){1,2}(?:\/|$)/Di', $path) === 1) {
-            throw new InvalidArgumentException('A path must not hold a dot segment.');
+            throw new InvalidValue('A path must not hold a dot segment.');
         }
 
         $url = $this->baseUrl . $path;
@@ -369,7 +373,7 @@ abstract readonly class AbstractAdapter implements Gateway
             $started + $request->timeoutSeconds,
         );
         if (! $answer instanceof Answer) {
-            throw new LogicException('The answer was read as a model list.');
+            throw new WrongUse('The answer was read as a model list.');
         }
 
         return $answer;
@@ -442,7 +446,7 @@ abstract readonly class AbstractAdapter implements Gateway
                 return $result;
             }
             if ($fault === null) {
-                throw new LogicException('An attempt ended without a result and without a failure.');
+                throw new WrongUse('An attempt ended without a result and without a failure.');
             }
             if ($fault['broken'] !== null) {
                 throw $fault['broken'];
@@ -619,7 +623,7 @@ abstract readonly class AbstractAdapter implements Gateway
                             foreach ($this->whatTheAdapterReads($chunks, $request) as $event) {
                                 if (! $event instanceof StreamEvent) {
                                     // A fault in the code of the adapter: nothing of it is handed to the caller.
-                                    $fault = self::unreadable($status, new Error('The adapter gave a value that is not a stream event.'));
+                                    $fault = self::unreadable($status, new ForeignFault('The adapter gave a value that is not a stream event.'));
 
                                     break;
                                 }
@@ -662,7 +666,7 @@ abstract readonly class AbstractAdapter implements Gateway
                     }
                 }
                 if ($fault === null) {
-                    throw new LogicException('An attempt ended without a result and without a failure.');
+                    throw new WrongUse('An attempt ended without a result and without a failure.');
                 }
 
                 // Only a stream that gave nothing yet may be tried again.
@@ -804,17 +808,41 @@ abstract readonly class AbstractAdapter implements Gateway
     /**
      * The request of the adapter, before the sign-in and the time left are added.
      *
-     * @throws GatewayException what the adapter refused, with the trace id of the call
+     * @throws GatewayException what the adapter refused, with the trace id of the call; provider_error with a fixed
+     *                          detail when the adapter threw another exception while it built the request
+     * @throws ForeignFault when the code of the adapter failed with an error while it built the request
      */
     private function template(Request $request, bool $stream, string $traceId): HttpRequest
     {
         try {
             $template = $this->completionRequest($request, $stream);
-        } catch (GatewayException $refusal) {
-            throw $this->error($refusal->reason, $traceId, null, $refusal->providerCode, null, 0, $refusal->detail);
+        } catch (Throwable $thrown) {
+            // What is thrown here is new: nothing of what the adapter threw is chained to it or copied into it.
+            throw $this->insteadOfWhatBuildingThrew($thrown, $traceId);
         }
 
         return $this->owned($template);
+    }
+
+    /**
+     * What leaves the call in place of what an adapter threw while it built a request: nothing was sent, no attempt
+     * is counted or reported, and nothing of what was thrown is chained or copied. Its text and its trace can hold
+     * the request, which is the text of the caller.
+     *
+     * A refusal the adapter built with failure() passes with the trace id of the call. Any other exception is
+     * treated as one thrown while a response is read: provider_error with a fixed detail, not retried. An error is
+     * a fault in the code of the adapter: a ForeignFault with a fixed text.
+     */
+    private function insteadOfWhatBuildingThrew(#[SensitiveParameter] Throwable $thrown, string $traceId): GatewayException|ForeignFault
+    {
+        if ($thrown instanceof GatewayException) {
+            return $this->error($thrown->reason, $traceId, null, $thrown->providerCode, null, 0, $thrown->detail);
+        }
+        if ($thrown instanceof Error) {
+            return self::adapterError($thrown);
+        }
+
+        return $this->error(ErrorReason::ProviderError, $traceId, null, null, null, 0, 'the request could not be built');
     }
 
     /**
@@ -827,7 +855,8 @@ abstract readonly class AbstractAdapter implements Gateway
         if ($rest === null
             || ($rest !== '' && $rest[0] !== '/' && $rest[0] !== '?')
             || preg_match('/\/(?:\.|%2e){1,2}(?:[\/?]|$)/Di', $rest) === 1) {
-            throw new LogicException(
+            // The request is an argument here: the refusal keeps where, not with what.
+            throw new WrongUse(
                 'An adapter must build every address with url(): this request does not stay under the base URL of the gateway.',
             );
         }
@@ -1038,15 +1067,16 @@ abstract readonly class AbstractAdapter implements Gateway
 
     /**
      * An error in the code of an adapter is a fault, not a failure of the provider: it is not mapped to a reason
-     * and not retried. A new error with a fixed text is thrown in its place, not chained, so that no frame of the
-     * adapter with a response in it survives.
+     * and not retried. A ForeignFault with a fixed text is thrown in its place, not chained, so that no frame of the
+     * adapter with a response in it survives. Its own trace keeps no argument of any call either: it is built
+     * while the request and the response are on the stack.
      */
-    private static function adapterError(#[SensitiveParameter] Error $thrown): Error
+    private static function adapterError(#[SensitiveParameter] Error $thrown): ForeignFault
     {
         // An anonymous class carries the path of its file after a null byte.
         $class = strstr($thrown::class, "\0", true);
 
-        return new Error(sprintf(
+        return new ForeignFault(sprintf(
             'The adapter failed with an error of class %s, thrown in %s on line %d.',
             $class === false ? $thrown::class : $class,
             basename($thrown->getFile()),
@@ -1216,21 +1246,21 @@ abstract readonly class AbstractAdapter implements Gateway
     private static function assertTimeout(float $timeoutSeconds): void
     {
         if (! Rules::isTimeout($timeoutSeconds)) {
-            throw new InvalidArgumentException('The timeout must be a finite number of seconds above 0.');
+            throw new InvalidValue('The timeout must be a finite number of seconds above 0.');
         }
     }
 
     private static function assertTraceId(?string $traceId): void
     {
         if ($traceId !== null && ! Rules::isTraceId($traceId)) {
-            throw new InvalidArgumentException('The trace id must match ^[A-Za-z0-9_.:-]{1,128}$.');
+            throw new InvalidValue('The trace id must match ^[A-Za-z0-9_.:-]{1,128}$.');
         }
     }
 
     private static function assertModel(string $model): void
     {
         if (! Rules::isModelName($model)) {
-            throw new InvalidArgumentException('The model must not be empty and must not hold a control character.');
+            throw new InvalidValue('The model must not be empty and must not hold a control character.');
         }
     }
 }

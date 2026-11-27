@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace OrganiseYou\LlmGateway\Transport;
 
-use InvalidArgumentException;
 use OrganiseYou\LlmGateway\Contract\Internal\Rules;
+use OrganiseYou\LlmGateway\Contract\InvalidValue;
 use OrganiseYou\LlmGateway\Contract\Secret;
 use SensitiveParameter;
 
@@ -37,10 +37,10 @@ final readonly class HttpRequest
         public string $body = '',
     ) {
         if ($method !== 'GET' && $method !== 'POST') {
-            throw new InvalidArgumentException('The method must be GET or POST.');
+            throw new InvalidValue('The method must be GET or POST.');
         }
         if (! Rules::isTimeout($timeoutSeconds)) {
-            throw new InvalidArgumentException('The timeout must be a finite number of seconds above 0.');
+            throw new InvalidValue('The timeout must be a finite number of seconds above 0.');
         }
 
         self::assertUrl($url);
@@ -87,19 +87,19 @@ final readonly class HttpRequest
     private static function assertUrl(#[SensitiveParameter] string $url): void
     {
         if (preg_match('/^[\x21-\x7e]*$/D', $url) !== 1 || str_contains($url, '\\')) {
-            throw new InvalidArgumentException(
+            throw new InvalidValue(
                 'The URL must hold only visible ASCII characters, without a space or a backslash.',
             );
         }
         // The authority is everything up to the first slash, question mark or hash; the end is checked below.
         if (preg_match('/^https?:\/\/([^\/?#]*)/Di', $url, $match) !== 1) {
-            throw new InvalidArgumentException('The URL must be absolute and start with http:// or https://.');
+            throw new InvalidValue('The URL must be absolute and start with http:// or https://.');
         }
         if (str_contains($match[1], '@')) {
-            throw new InvalidArgumentException('The URL must not hold user info.');
+            throw new InvalidValue('The URL must not hold user info.');
         }
         if (str_contains($url, '#')) {
-            throw new InvalidArgumentException('The URL must not hold a fragment.');
+            throw new InvalidValue('The URL must not hold a fragment.');
         }
 
         self::assertAuthority($match[1]);
@@ -115,13 +115,13 @@ final readonly class HttpRequest
             . 'with at most a port from 1 to 65535 after it.';
 
         if (preg_match('/^(?:([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)|\[([0-9A-Fa-f:.]+)\])(?::([0-9]{1,5}))?$/D', $authority, $match, PREG_UNMATCHED_AS_NULL) !== 1) {
-            throw new InvalidArgumentException($refusal);
+            throw new InvalidValue($refusal);
         }
         if ($match[2] !== null && filter_var($match[2], FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) === false) {
-            throw new InvalidArgumentException($refusal);
+            throw new InvalidValue($refusal);
         }
         if (isset($match[3]) && ((int) $match[3] < 1 || (int) $match[3] > 65535)) {
-            throw new InvalidArgumentException($refusal);
+            throw new InvalidValue($refusal);
         }
     }
 
@@ -135,10 +135,10 @@ final readonly class HttpRequest
         foreach ($headers as $name => $value) {
             $lowered = self::assertName($name, $seen);
             if (! is_string($value)) {
-                throw new InvalidArgumentException('A header value must be a string.');
+                throw new InvalidValue('A header value must be a string.');
             }
             if (strpbrk($value, "\r\n") !== false) {
-                throw new InvalidArgumentException('A header value must not hold a line break.');
+                throw new InvalidValue('A header value must not hold a line break.');
             }
             $seen[$lowered] = true;
         }
@@ -159,10 +159,10 @@ final readonly class HttpRequest
         foreach ($secretHeaders as $name => $value) {
             $lowered = self::assertName($name, $seen);
             if (! $value instanceof Secret) {
-                throw new InvalidArgumentException('A secret header value must be a Secret.');
+                throw new InvalidValue('A secret header value must be a Secret.');
             }
             if (strpbrk($value->reveal(), "\r\n") !== false) {
-                throw new InvalidArgumentException('A secret header value must not hold a line break.');
+                throw new InvalidValue('A secret header value must not hold a line break.');
             }
             $seen[$lowered] = true;
         }
@@ -178,12 +178,12 @@ final readonly class HttpRequest
         array $seen,
     ): string {
         if (! is_string($name) || ! Rules::isHttpToken($name)) {
-            throw new InvalidArgumentException('A header name must be an HTTP token.');
+            throw new InvalidValue('A header name must be an HTTP token.');
         }
 
         $lowered = strtolower($name);
         if (isset($seen[$lowered])) {
-            throw new InvalidArgumentException('A header name must not be given twice, compared without case.');
+            throw new InvalidValue('A header name must not be given twice, compared without case.');
         }
 
         return $lowered;

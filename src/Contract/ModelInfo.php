@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace OrganiseYou\LlmGateway\Contract;
 
-use InvalidArgumentException;
 use OrganiseYou\LlmGateway\Contract\Internal\Rules;
 
 /**
@@ -26,13 +25,13 @@ final readonly class ModelInfo
         public bool $deprecated = false,
     ) {
         if (! Rules::isModelName($id)) {
-            throw new InvalidArgumentException('The id must not be empty and must not hold a control character.');
+            throw new InvalidValue('The id must not be empty and must not hold a control character.');
         }
         if ($name !== null && ! Rules::isModelName($name)) {
-            throw new InvalidArgumentException('The name must not be empty and must not hold a control character.');
+            throw new InvalidValue('The name must not be empty and must not hold a control character.');
         }
         if ($contextLength !== null && $contextLength < 1) {
-            throw new InvalidArgumentException('The context length must be 1 or more.');
+            throw new InvalidValue('The context length must be 1 or more.');
         }
 
         self::assertAliases($aliases);
@@ -44,12 +43,12 @@ final readonly class ModelInfo
     private static function assertAliases(array $aliases): void
     {
         if (! array_is_list($aliases)) {
-            throw new InvalidArgumentException('The aliases must be a list.');
+            throw new InvalidValue('The aliases must be a list.');
         }
 
         foreach ($aliases as $alias) {
             if (! is_string($alias) || ! Rules::isModelName($alias)) {
-                throw new InvalidArgumentException(
+                throw new InvalidValue(
                     'An alias must be a string that is not empty and holds no control character.',
                 );
             }

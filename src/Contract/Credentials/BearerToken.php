@@ -6,6 +6,7 @@ namespace OrganiseYou\LlmGateway\Contract\Credentials;
 
 use Error;
 use Generator;
+use OrganiseYou\LlmGateway\Contract\ForeignFault;
 use OrganiseYou\LlmGateway\Contract\Secret;
 use SensitiveParameter;
 use Throwable;
@@ -45,11 +46,12 @@ final readonly class BearerToken implements Credentials
      * Asks the supplier for a token, now. The one place where the supplier is called.
      *
      * Whatever the supplier throws is not passed on, chained or copied: its message and its trace can hold the
-     * token. What is thrown here has a fixed text with at most the class of what was thrown.
+     * token. What is thrown here has a fixed text with at most the class of what was thrown, and no argument of any
+     * call in its trace.
      *
      * @throws TokenSupplierFailed when the supplier throws an exception, or gives a token that cannot be sent as
      *                             it is: one with a control character, or with a space or tab at its start or end
-     * @throws Error when the supplier fails with an error: a fault in the code of the host, not a failed sign-in
+     * @throws ForeignFault when the supplier fails with an error: a fault in the code of the host, not a failed sign-in
      */
     public function token(): Secret
     {
@@ -77,7 +79,7 @@ final readonly class BearerToken implements Credentials
                 // An anonymous class carries the path of its file after a null byte.
                 $name = strstr($thrownClass, "\0", true);
 
-                throw new Error('The token supplier failed with an error of class ' . ($name === false ? $thrownClass : $name) . '.');
+                throw new ForeignFault('The token supplier failed with an error of class ' . ($name === false ? $thrownClass : $name) . '.');
             }
 
             throw TokenSupplierFailed::threw($thrownClass);

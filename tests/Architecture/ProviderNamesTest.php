@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use OrganiseYou\LlmGateway\Tests\Support\ReadmeSamples;
 use OrganiseYou\LlmGateway\Tests\Support\SourceCode;
 
 // LR-04 and the project guide: no provider name outside its adapter and its preset. A caller asks capabilities,
@@ -250,3 +251,20 @@ it('does not take a plain word for a provider name', function (string $code): vo
     'plain words that are also the names of text models, in a comment' => ['// A balloon of helium; the viking ships.'],
     'letters that only look like the vendor of one letter' => ['$maxAi = 1; $taxAid = 2; // the index ai of the matrix ai'],
 ]);
+
+// The samples of the README show the contract, and an adapter and a preset a reader writes: all with made-up names.
+// The running ones are executed by the suite (tests/Readme) in place of a file, so the rule reads them here.
+
+it('names no provider in any sample of the README', function (): void {
+    $samples = ReadmeSamples::all();
+    expect(count($samples))->toBeGreaterThan(10, 'the rule must have found the samples');
+
+    $findings = [];
+    foreach ($samples as $sample) {
+        foreach (providerNamesIn("<?php\n" . str_repeat("\n", $sample->line - 2) . $sample->code) as $finding) {
+            $findings[] = 'README.md ' . $finding;
+        }
+    }
+
+    expect($findings)->toBe([]);
+});

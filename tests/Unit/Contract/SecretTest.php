@@ -93,7 +93,7 @@ describe('Secret', function (): void {
         }
     });
 
-    it('hides the argument of its constructor in the trace of its refusal', function (): void {
+    it('keeps the argument of its constructor out of the trace of its refusal', function (): void {
         withExceptionIgnoreArgs(false, function (): void {
             try {
                 new Secret('');
@@ -101,8 +101,11 @@ describe('Secret', function (): void {
                 $frame = $exception->getTrace()[0];
 
                 expect($frame['function'])->toBe('__construct')
-                    ->and($frame['class'] ?? null)->toBe(Secret::class)
-                    ->and($frame['args'][0] ?? null)->toBeInstanceOf(SensitiveParameterValue::class);
+                    ->and($frame['class'] ?? null)->toBe(Secret::class);
+                // Not even wrapped: a SensitiveParameterValue gives its value to whoever walks the trace.
+                foreach ($exception->getTrace() as $frame) {
+                    expect($frame)->not->toHaveKey('args');
+                }
 
                 return;
             }

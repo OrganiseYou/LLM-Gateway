@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace OrganiseYou\LlmGateway\Adapter\Shared\Internal;
 
+use OrganiseYou\LlmGateway\Contract\Internal\Traces;
 use RuntimeException;
 
 /**
@@ -16,5 +17,8 @@ final class SchemaReferenceLoop extends RuntimeException
     public function __construct()
     {
         parent::__construct('A reference in the schema leads back to itself.');
+
+        // Built inside the validator, with the answer on the stack: the trace keeps where, not with what.
+        Traces::withoutArguments($this);
     }
 }

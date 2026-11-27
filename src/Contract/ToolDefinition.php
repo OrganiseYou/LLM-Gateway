@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace OrganiseYou\LlmGateway\Contract;
 
-use InvalidArgumentException;
-
 /**
  * A tool the model may ask to call.
  */
@@ -21,12 +19,12 @@ final readonly class ToolDefinition
         public JsonSchema $parameters,
     ) {
         if ($name === '' || preg_match('/[\p{Cc}\p{Z}]/u', $name) !== 0) {
-            throw new InvalidArgumentException(
+            throw new InvalidValue(
                 'A tool name must not be empty and must not hold whitespace or a control character.',
             );
         }
         if (preg_match('//u', $description) !== 1) {
-            throw new InvalidArgumentException('A tool description must be valid UTF-8.');
+            throw new InvalidValue('A tool description must be valid UTF-8.');
         }
     }
 }

@@ -12,6 +12,7 @@ use OrganiseYou\LlmGateway\Adapter\Shared\Internal\SchemaReferenceLoop;
 use OrganiseYou\LlmGateway\Adapter\Shared\StructuredAnswerChecker;
 use OrganiseYou\LlmGateway\Contract\ErrorReason;
 use OrganiseYou\LlmGateway\Contract\FinishReason;
+use OrganiseYou\LlmGateway\Contract\ForeignFault;
 use OrganiseYou\LlmGateway\Contract\GatewayException;
 use OrganiseYou\LlmGateway\Contract\JsonSchema;
 use OrganiseYou\LlmGateway\Contract\ResponseFormat;
@@ -1154,11 +1155,11 @@ describe('what the validator throws', function (): void {
         }
     });
 
-    it('becomes a new plain error with a fixed text when it is an error that does not come from the schema', function (Throwable $thrown, string $class): void {
+    it('becomes a foreign fault with a fixed text when it is an error that does not come from the schema', function (Throwable $thrown, string $class): void {
         $instead = checkerInternal('insteadOf', $thrown, checkerInternal('foldersOfValidator'));
         assert($instead instanceof Throwable);
 
-        expect($instead::class)->toBe(Error::class)
+        expect($instead::class)->toBe(ForeignFault::class)
             ->and($instead)->not->toBe($thrown)
             ->and($instead->getPrevious())->toBeNull()
             ->and($instead->getMessage())->toBe('The structured check failed with an error of class ' . $class . ', thrown in StructuredAnswerCheckerTest.php on line ' . $thrown->getLine() . '.');
@@ -1168,6 +1169,28 @@ describe('what the validator throws', function (): void {
         'an arithmetic error' => [fn() => new DivisionByZeroError('made up'), 'DivisionByZeroError'],
         'an error' => [fn() => new Error('made up'), 'Error'],
     ]);
+
+    it('keeps no argument of any call in the trace of that new error: what was thrown is an argument where it is built', function (): void {
+        withExceptionIgnoreArgs(false, function (): void {
+            // The text of an error of the host can quote the answer; it is the sensitive argument of the method that
+            // builds the new error.
+            $instead = checkerInternal('insteadOf', new Error('made up, with ' . LEAK_MARKER), checkerInternal('foldersOfValidator'));
+            assert($instead instanceof Error);
+
+            expect($instead->getMessage())->toStartWith('The structured check failed with an error of class Error, thrown in ');
+            expectNoArgumentsInTrace($instead);
+        });
+    });
+
+    it('keeps no argument of any call in the traces of the two exceptions of the loop guard', function (): void {
+        withExceptionIgnoreArgs(false, function (): void {
+            $built = fn(string $answer): array => [new SchemaReferenceLoop(), new SchemaCheckTooCostly()];
+
+            foreach ($built('{"echo":"' . LEAK_MARKER . '"}') as $exception) {
+                expectNoArgumentsInTrace($exception);
+            }
+        });
+    });
 
     it('passes as it is when it is an exception that is not of the validator: only the handler of the host can throw one', function (): void {
         $thrown = new ErrorException('made up');

@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace OrganiseYou\LlmGateway\Contract;
 
-use InvalidArgumentException;
-
 /**
  * The structured part of an answer: the decoded data and the reasons it is unusable. An unusable structured answer
  * is returned, never thrown.
@@ -24,7 +22,7 @@ final readonly class StructuredResult
         self::assertIssues($issues);
 
         if ($data === null && $issues === []) {
-            throw new InvalidArgumentException('A structured result without data needs at least one issue.');
+            throw new InvalidValue('A structured result without data needs at least one issue.');
         }
     }
 
@@ -47,11 +45,11 @@ final readonly class StructuredResult
     private static function assertIssues(array $issues): void
     {
         if (! array_is_list($issues)) {
-            throw new InvalidArgumentException('The issues of a structured result must be a list.');
+            throw new InvalidValue('The issues of a structured result must be a list.');
         }
         foreach ($issues as $issue) {
             if (! $issue instanceof StructuredIssue) {
-                throw new InvalidArgumentException('The issues of a structured result hold a value that is not an issue.');
+                throw new InvalidValue('The issues of a structured result hold a value that is not an issue.');
             }
         }
     }

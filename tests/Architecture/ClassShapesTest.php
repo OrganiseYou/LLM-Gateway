@@ -8,9 +8,12 @@ use OrganiseYou\LlmGateway\Adapter\Shared\Internal\LoopGuardValidator;
 use OrganiseYou\LlmGateway\Adapter\Shared\Internal\SchemaCheckTooCostly;
 use OrganiseYou\LlmGateway\Adapter\Shared\Internal\SchemaReferenceLoop;
 use OrganiseYou\LlmGateway\Contract\Credentials\TokenSupplierFailed;
+use OrganiseYou\LlmGateway\Contract\ForeignFault;
 use OrganiseYou\LlmGateway\Contract\GatewayException;
 use OrganiseYou\LlmGateway\Contract\Internal\Rules;
+use OrganiseYou\LlmGateway\Contract\InvalidValue;
 use OrganiseYou\LlmGateway\Contract\Secret;
+use OrganiseYou\LlmGateway\Contract\WrongUse;
 use OrganiseYou\LlmGateway\GatewayFactory;
 use OrganiseYou\LlmGateway\Testing\AttemptRecorder;
 use OrganiseYou\LlmGateway\Testing\ContractTestCase;
@@ -40,6 +43,9 @@ function classesThatAreNotFinalReadonly(): array
     return [
         AbstractAdapter::class => ['abstract readonly', 'the base an adapter extends; every adapter is readonly through it'],
         GatewayException::class => ['final', $exception],
+        InvalidValue::class => ['final', $exception],
+        WrongUse::class => ['final', $exception],
+        ForeignFault::class => ['final', $exception],
         TransportException::class => ['final', $exception],
         TokenSupplierFailed::class => ['final', $exception],
         SchemaCheckTooCostly::class => ['final', $exception],

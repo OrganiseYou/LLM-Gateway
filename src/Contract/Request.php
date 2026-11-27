@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace OrganiseYou\LlmGateway\Contract;
 
-use InvalidArgumentException;
 use OrganiseYou\LlmGateway\Contract\Internal\Rules;
 
 /**
@@ -34,34 +33,34 @@ final readonly class Request
         public ?string $traceId = null,
     ) {
         if (! Rules::isModelName($model)) {
-            throw new InvalidArgumentException('The model must not be empty and must not hold a control character.');
+            throw new InvalidValue('The model must not be empty and must not hold a control character.');
         }
 
         self::assertMessages($messages);
 
         if (! Rules::isTimeout($timeoutSeconds)) {
-            throw new InvalidArgumentException('The timeout must be a finite number of seconds above 0.');
+            throw new InvalidValue('The timeout must be a finite number of seconds above 0.');
         }
 
         $toolNames = self::toolNames($tools);
 
         if ($toolNames === [] && in_array($toolChoice->mode, [ToolChoiceMode::Required, ToolChoiceMode::Tool], true)) {
-            throw new InvalidArgumentException('This tool choice needs at least one tool.');
+            throw new InvalidValue('This tool choice needs at least one tool.');
         }
         if ($toolChoice->mode === ToolChoiceMode::Tool && ! isset($toolNames[$toolChoice->toolName])) {
-            throw new InvalidArgumentException('The tool choice names a tool that is not in the tools.');
+            throw new InvalidValue('The tool choice names a tool that is not in the tools.');
         }
         if ($responseFormat !== null && isset($toolNames[$responseFormat->name])) {
-            throw new InvalidArgumentException('The response format has the same name as a tool.');
+            throw new InvalidValue('The response format has the same name as a tool.');
         }
         if ($maxOutputTokens !== null && $maxOutputTokens < 1) {
-            throw new InvalidArgumentException('The maximum of output tokens must be 1 or more.');
+            throw new InvalidValue('The maximum of output tokens must be 1 or more.');
         }
         if ($temperature !== null && (! is_finite($temperature) || $temperature < 0.0 || $temperature > 1.0)) {
-            throw new InvalidArgumentException('The temperature must be between 0.0 and 1.0.');
+            throw new InvalidValue('The temperature must be between 0.0 and 1.0.');
         }
         if ($traceId !== null && ! Rules::isTraceId($traceId)) {
-            throw new InvalidArgumentException('The trace id must match ^[A-Za-z0-9_.:-]{1,128}$.');
+            throw new InvalidValue('The trace id must match ^[A-Za-z0-9_.:-]{1,128}$.');
         }
     }
 
@@ -137,21 +136,21 @@ final readonly class Request
     private static function assertMessages(array $messages): void
     {
         if ($messages === []) {
-            throw new InvalidArgumentException('A request needs at least one message.');
+            throw new InvalidValue('A request needs at least one message.');
         }
         if (! array_is_list($messages)) {
-            throw new InvalidArgumentException('The messages of a request must be a list.');
+            throw new InvalidValue('The messages of a request must be a list.');
         }
 
         $otherRoleSeen = false;
         foreach ($messages as $message) {
             if (! $message instanceof Message) {
-                throw new InvalidArgumentException('The messages of a request hold a value that is not a message.');
+                throw new InvalidValue('The messages of a request hold a value that is not a message.');
             }
             if ($message->role !== Role::System) {
                 $otherRoleSeen = true;
             } elseif ($otherRoleSeen) {
-                throw new InvalidArgumentException('A system message must come before the messages of other roles.');
+                throw new InvalidValue('A system message must come before the messages of other roles.');
             }
         }
     }
@@ -163,16 +162,16 @@ final readonly class Request
     private static function toolNames(array $tools): array
     {
         if (! array_is_list($tools)) {
-            throw new InvalidArgumentException('The tools of a request must be a list.');
+            throw new InvalidValue('The tools of a request must be a list.');
         }
 
         $names = [];
         foreach ($tools as $tool) {
             if (! $tool instanceof ToolDefinition) {
-                throw new InvalidArgumentException('The tools of a request hold a value that is not a tool definition.');
+                throw new InvalidValue('The tools of a request hold a value that is not a tool definition.');
             }
             if (isset($names[$tool->name])) {
-                throw new InvalidArgumentException('Two tools of a request have the same name.');
+                throw new InvalidValue('Two tools of a request have the same name.');
             }
             $names[$tool->name] = true;
         }

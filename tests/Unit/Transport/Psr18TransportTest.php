@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Nyholm\Psr7\Response;
+use OrganiseYou\LlmGateway\Contract\ForeignFault;
 use OrganiseYou\LlmGateway\Contract\Secret;
 use OrganiseYou\LlmGateway\Tests\Support\FlakyEndBody;
 use OrganiseYou\LlmGateway\Tests\Support\HeaderSpyResponse;
@@ -319,7 +320,7 @@ describe('Psr18Transport', function (): void {
             foreach ([fn() => bridge($client)->send(bridgeRequest()), fn() => bridge($client)->stream(bridgeRequest())] as $call) {
                 $left = thrownBy($call);
 
-                expect($left::class)->toBe(Error::class)
+                expect($left::class)->toBe(ForeignFault::class)
                     ->and($left->getMessage())->toBe('The HTTP client or its message classes failed with an error of class TypeError.')
                     ->and($left->getPrevious())->toBeNull();
                 expectNoMarker(exceptionForms($left));
@@ -384,7 +385,7 @@ describe('Psr18Transport', function (): void {
 
             $left = thrownBy(fn() => $transport->send(bridgeRequest()));
 
-            expect($left::class)->toBe(Error::class)
+            expect($left::class)->toBe(ForeignFault::class)
                 ->and($left->getMessage())->toBe('The HTTP client or its message classes failed with an error of class TypeError.')
                 ->and($left->getPrevious())->toBeNull();
             expectNoMarker(exceptionForms($left));
@@ -409,7 +410,7 @@ describe('Psr18Transport', function (): void {
 
         $left = thrownBy(fn() => iterator_to_array(bridge($client)->stream(bridgeRequest())->chunks, false));
 
-        expect($left::class)->toBe(Error::class)
+        expect($left::class)->toBe(ForeignFault::class)
             ->and($left->getMessage())->toBe('The HTTP client or its message classes failed with an error of class TypeError.')
             ->and($left->getPrevious())->toBeNull()
             ->and($body->closed)->toBeTrue();
@@ -526,7 +527,7 @@ describe('Psr18Transport', function (): void {
 
         $left = thrownBy(fn() => bridge($client)->send(bridgeRequest()));
 
-        expect($left::class)->toBe(Error::class)
+        expect($left::class)->toBe(ForeignFault::class)
             ->and($left->getMessage())->toBe('The HTTP client or its message classes failed with an error of class TypeError.')
             ->and($left->getPrevious())->toBeNull();
     })->with(['getStatusCode', 'getHeaders', 'getBody']);

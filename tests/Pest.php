@@ -46,7 +46,8 @@ function plainErrorFromAttempt(string $errorBody, array $headers, Throwable $cli
 }
 
 /**
- * Every form in which a host can print or store an exception.
+ * Every form in which a host can print or store an exception, and what a walk over its trace reaches behind every
+ * SensitiveParameterValue in it.
  *
  * @return array<string, string>
  */
@@ -119,6 +120,25 @@ function reflectionRead(mixed $value, int $depth = 0): string
 }
 
 /**
+ * Fails when a frame of the trace still holds the arguments of its call, or when a walk over the trace reaches the
+ * marker: through an argument, or through what stands behind a SensitiveParameterValue. PHP hides an argument that
+ * is marked as sensitive from every printed form of a trace, but getValue() on what it leaves there gives it back.
+ * A test that uses this runs with the arguments kept (withExceptionIgnoreArgs(false, …)): with them left out there
+ * is nothing to find.
+ */
+function expectNoArgumentsInTrace(Throwable $thrown): void
+{
+    expect($thrown->getTrace())->not->toBe([]);
+
+    foreach ($thrown->getTrace() as $at => $frame) {
+        expect(array_key_exists('args', $frame))->toBeFalse('frame ' . $at . ' (' . ($frame['class'] ?? '') . '::' . $frame['function'] . ') keeps the arguments of its call');
+    }
+
+    expect(holdsMarker(reflectionRead($thrown->getTrace()), 'MARKER'))->toBeFalse('a walk over the trace reaches the secret');
+    expectNoMarker(exceptionForms($thrown));
+}
+
+/**
  * Fails when one of the output forms holds the marker, or the word in its middle that survives a cut. Use this and
  * not `->not->toContain($marker, $message)`: that expectation takes every argument as a text to find, so with a
  * message it passes whatever the output holds.
@@ -133,7 +153,7 @@ function expectNoMarker(array $forms): void
         $at = strpos($output, 'MARKER');
         // What stands before it, to find the place. Never the marker itself: the runner keeps this message, and a
         // later test that prints its own trace would then find the marker in it.
-        $before = $at === false ? '' : ', after: …' . preg_replace('/\s+/', ' ', str_replace('sk-test-', '', substr($output, max(0, $at - 300), 300)));
+        $before = $at === false ? '' : ', after: …' . preg_replace('/\s+/', ' ', str_replace('sk-test-', '', substr($output, max(0, $at - 300), min($at, 300))));
 
         expect($at)->toBeFalse($form . ' shows the secret' . $before);
     }

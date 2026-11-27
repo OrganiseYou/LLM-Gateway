@@ -4,11 +4,9 @@ declare(strict_types=1);
 
 namespace OrganiseYou\LlmGateway\Contract;
 
-use Exception;
-use InvalidArgumentException;
 use JsonSerializable;
 use OrganiseYou\LlmGateway\Contract\Internal\Rules;
-use ReflectionProperty;
+use OrganiseYou\LlmGateway\Contract\Internal\Traces;
 use RuntimeException;
 use SensitiveParameter;
 
@@ -42,21 +40,21 @@ final class GatewayException extends RuntimeException implements JsonSerializabl
         public readonly ?string $detail = null,
     ) {
         if (! Rules::isTraceId($traceId)) {
-            throw new InvalidArgumentException('The trace id must match ^[A-Za-z0-9_.:-]{1,128}$.');
+            throw new InvalidValue('The trace id must match ^[A-Za-z0-9_.:-]{1,128}$.');
         }
         if ($httpStatus !== null && ($httpStatus < 100 || $httpStatus > 599)) {
-            throw new InvalidArgumentException('The HTTP status must be between 100 and 599.');
+            throw new InvalidValue('The HTTP status must be between 100 and 599.');
         }
         if ($retryAfterSeconds !== null && $retryAfterSeconds < 0) {
-            throw new InvalidArgumentException('The seconds to wait must be 0 or more.');
+            throw new InvalidValue('The seconds to wait must be 0 or more.');
         }
         if ($retryAfterSeconds !== null && $reason !== ErrorReason::RateLimited && $reason !== ErrorReason::Unavailable) {
-            throw new InvalidArgumentException(
+            throw new InvalidValue(
                 'The seconds to wait go only with the reasons rate_limited and unavailable.',
             );
         }
         if ($attempts < 0) {
-            throw new InvalidArgumentException('The attempts must be 0 or more.');
+            throw new InvalidValue('The attempts must be 0 or more.');
         }
         if ($detail !== null) {
             self::assertDetail($detail);
@@ -66,7 +64,8 @@ final class GatewayException extends RuntimeException implements JsonSerializabl
 
         parent::__construct(self::buildMessage($reason, $httpStatus, $this->providerCode, $detail));
 
-        $this->dropTraceArguments();
+        // The trace keeps where, not with what: a body, a header or a client's exception was an argument somewhere.
+        Traces::withoutArguments($this);
     }
 
     /**
@@ -91,15 +90,15 @@ final class GatewayException extends RuntimeException implements JsonSerializabl
     private static function assertDetail(#[SensitiveParameter] string $detail): void
     {
         if (preg_match('/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u', $detail) !== 0) {
-            throw new InvalidArgumentException(
+            throw new InvalidValue(
                 'The detail must be valid UTF-8 without control characters, line separators or format controls.',
             );
         }
         if (preg_match('/[^\p{Z}]/u', $detail) !== 1) {
-            throw new InvalidArgumentException('The detail must not be empty or only whitespace.');
+            throw new InvalidValue('The detail must not be empty or only whitespace.');
         }
         if (preg_match('/^.{1,200}$/Du', $detail) !== 1) {
-            throw new InvalidArgumentException('The detail must be 200 characters or fewer.');
+            throw new InvalidValue('The detail must be 200 characters or fewer.');
         }
     }
 
@@ -122,21 +121,5 @@ final class GatewayException extends RuntimeException implements JsonSerializabl
         }
 
         return $message;
-    }
-
-    /**
-     * PHP stores the arguments of every call on the stack in the trace of an exception, unless the host switched
-     * that off. A request body, a header or a client's exception that was an argument somewhere would then show in
-     * print_r, var_export, serialize and, cut to 15 bytes, in the string form. The trace keeps where, not with what.
-     */
-    private function dropTraceArguments(): void
-    {
-        $trace = [];
-        foreach ($this->getTrace() as $frame) {
-            unset($frame['args']);
-            $trace[] = $frame;
-        }
-
-        (new ReflectionProperty(Exception::class, 'trace'))->setValue($this, $trace);
     }
 }

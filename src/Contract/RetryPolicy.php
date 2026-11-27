@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace OrganiseYou\LlmGateway\Contract;
 
-use InvalidArgumentException;
-
 /**
  * How a failed attempt is tried again. The caller gives the waits; the library has no default and adds no jitter.
  */
@@ -25,7 +23,7 @@ final readonly class RetryPolicy
         $waits = self::waits($waitsSeconds);
 
         if (! is_finite($maxProviderWaitSeconds) || $maxProviderWaitSeconds < 0.0) {
-            throw new InvalidArgumentException(
+            throw new InvalidValue(
                 'The longest wait accepted from the provider must be a finite number of seconds of 0 or more.',
             );
         }
@@ -40,13 +38,13 @@ final readonly class RetryPolicy
     private static function waits(array $waitsSeconds): array
     {
         if (! array_is_list($waitsSeconds)) {
-            throw new InvalidArgumentException('The waits must be a list.');
+            throw new InvalidValue('The waits must be a list.');
         }
 
         $waits = [];
         foreach ($waitsSeconds as $wait) {
             if ((! is_int($wait) && ! is_float($wait)) || ! is_finite((float) $wait) || $wait < 0) {
-                throw new InvalidArgumentException('A wait must be a finite number of seconds of 0 or more.');
+                throw new InvalidValue('A wait must be a finite number of seconds of 0 or more.');
             }
             $waits[] = (float) $wait;
         }

@@ -10,6 +10,8 @@ use OrganiseYou\LlmGateway\Contract\Credentials\HeaderKey;
 use OrganiseYou\LlmGateway\Contract\Credentials\NoCredentials;
 use OrganiseYou\LlmGateway\Contract\Credentials\TokenSupplier;
 use OrganiseYou\LlmGateway\Contract\Credentials\TokenSupplierFailed;
+use OrganiseYou\LlmGateway\Contract\ForeignFault;
+use OrganiseYou\LlmGateway\Contract\InvalidValue;
 use OrganiseYou\LlmGateway\Contract\Secret;
 use OrganiseYou\LlmGateway\Transport\HttpRequest;
 
@@ -318,8 +320,8 @@ describe('BearerKey and HeaderKey', function (): void {
         expect(fn() => keyCredential($class, ' '))->toThrow(InvalidArgumentException::class, 'The key must not start or end with a space.');
     })->with([BearerKey::class, HeaderKey::class]);
 
-    it('hides the key in the trace of its refusal, with the arguments of calls kept and left out', function (string $class, bool $ignoreArgs): void {
-        withExceptionIgnoreArgs($ignoreArgs, function () use ($class, $ignoreArgs): void {
+    it('keeps the key out of the trace of its refusal, with the arguments of calls kept and left out', function (string $class, bool $ignoreArgs): void {
+        withExceptionIgnoreArgs($ignoreArgs, function () use ($class): void {
             try {
                 keyCredential($class, LEAK_MARKER . "\n");
             } catch (InvalidArgumentException $exception) {
@@ -327,9 +329,8 @@ describe('BearerKey and HeaderKey', function (): void {
 
                 expect($frame['function'])->toBe('__construct')
                     ->and($frame['class'] ?? null)->toBe($class);
-                if (! $ignoreArgs) {
-                    expect($frame['args'][0] ?? null)->toBeInstanceOf(SensitiveParameterValue::class);
-                } else {
+                // Not even wrapped: a SensitiveParameterValue gives its value to whoever walks the trace.
+                foreach ($exception->getTrace() as $frame) {
                     expect($frame)->not->toHaveKey('args');
                 }
                 expectNoMarker(exceptionForms($exception));
@@ -445,7 +446,7 @@ describe('BearerToken', function (): void {
                 $failure = $thrown;
             }
 
-            expect($failure === null ? null : $failure::class)->toBe(Error::class)
+            expect($failure === null ? null : $failure::class)->toBe(ForeignFault::class)
                 ->and($failure?->getMessage())->toBe('The token supplier failed with an error of class TypeError.')
                 ->and($failure?->getPrevious())->toBeNull()
                 ->and($failure?->getCode())->toBe(0);
@@ -473,7 +474,7 @@ describe('BearerToken', function (): void {
         $credentials = new BearerToken(scriptedSupplier(fn(): Secret => new Secret('')));
 
         expect(fn() => $credentials->token())
-            ->toThrow(TokenSupplierFailed::class, 'The token supplier failed with an exception of class InvalidArgumentException.');
+            ->toThrow(TokenSupplierFailed::class, 'The token supplier failed with an exception of class ' . InvalidValue::class . '.');
     });
 
     it('names an anonymous error class without the path of its file', function (): void {
@@ -488,7 +489,7 @@ describe('BearerToken', function (): void {
             $failure = $thrown;
         }
 
-        expect($failure === null ? null : $failure::class)->toBe(Error::class)
+        expect($failure === null ? null : $failure::class)->toBe(ForeignFault::class)
             ->and($failure?->getMessage())->toBe('The token supplier failed with an error of class Error@anonymous.');
         expectNoMarker(exceptionForms($failure ?? new LogicException('Nothing was thrown.')));
     });

@@ -10,6 +10,7 @@ use Generator;
 use ReflectionFunction;
 use ReflectionGenerator;
 use ReflectionObject;
+use SensitiveParameterValue;
 use Stringable;
 use Throwable;
 use UnitEnum;
@@ -21,7 +22,9 @@ use UnitEnum;
 final class OutputForms
 {
     /**
-     * Every form in which a host can print or store an exception, its trace with it.
+     * Every form in which a host can print or store an exception, its trace with it, and what a walk over that
+     * trace reaches: PHP hides an argument that is marked as sensitive from every printed form, but keeps it in the
+     * trace inside a SensitiveParameterValue, whose getValue() gives it back.
      *
      * @return array<string, string>
      */
@@ -44,6 +47,7 @@ final class OutputForms
             'serialize' => $serialized,
             'getTraceAsString' => $exception->getTraceAsString(),
             'getTrace' => print_r($exception->getTrace(), true),
+            'getTrace, sensitive arguments unwrapped' => self::sensitiveArguments($exception->getTrace()),
         ];
     }
 
@@ -99,6 +103,10 @@ final class OutputForms
         if (! is_object($value)) {
             return is_scalar($value) ? (string) $value . "\n" : '';
         }
+        if ($value instanceof SensitiveParameterValue) {
+            // Hidden from every printed form, and one call away for whoever holds it.
+            return self::reflectionRead($value->getValue(), $depth);
+        }
 
         $out = self::dumped($value);
 
@@ -120,10 +128,35 @@ final class OutputForms
             return $out;
         }
 
-        foreach ((new ReflectionObject($value))->getProperties() as $property) {
-            if ($property->isInitialized($value)) {
-                $out .= self::reflectionRead($property->getValue($value), $depth + 1);
+        // The private properties of a parent class are properties of that class alone: the trace of an exception is
+        // one of them.
+        for ($class = new ReflectionObject($value); $class !== false; $class = $class->getParentClass()) {
+            foreach ($class->getProperties() as $property) {
+                if ($property->getDeclaringClass()->getName() === $class->getName() && $property->isInitialized($value)) {
+                    $out .= self::reflectionRead($property->getValue($value), $depth + 1);
+                }
             }
+        }
+
+        return $out;
+    }
+
+    /**
+     * What stands behind every SensitiveParameterValue among the arguments of a trace, read as a debugger reads
+     * it. The arguments that are not wrapped are in the printed forms of the trace already.
+     *
+     * @param array<mixed> $trace
+     */
+    private static function sensitiveArguments(array $trace): string
+    {
+        $out = '';
+        foreach ($trace as $frame) {
+            $arguments = is_array($frame) && is_array($frame['args'] ?? null) ? $frame['args'] : [];
+            array_walk_recursive($arguments, static function (mixed $argument) use (&$out): void {
+                if ($argument instanceof SensitiveParameterValue) {
+                    $out .= self::reflectionRead($argument);
+                }
+            });
         }
 
         return $out;

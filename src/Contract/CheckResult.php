@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace OrganiseYou\LlmGateway\Contract;
 
-use InvalidArgumentException;
 use OrganiseYou\LlmGateway\Contract\Internal\Rules;
 use SensitiveParameter;
 
@@ -28,10 +27,10 @@ final readonly class CheckResult
         ?string $providerCode = null,
     ) {
         if ($reason !== null && $status !== CheckStatus::No) {
-            throw new InvalidArgumentException('A reason goes only with the status no.');
+            throw new InvalidValue('A reason goes only with the status no.');
         }
         if ($providerCode !== null && $status !== CheckStatus::No) {
-            throw new InvalidArgumentException('A provider code goes only with the status no.');
+            throw new InvalidValue('A provider code goes only with the status no.');
         }
 
         $this->providerCode = Rules::plainProviderCode($providerCode);
