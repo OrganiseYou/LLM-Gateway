@@ -159,6 +159,27 @@ describe('GatewayFactory::create', function (): void {
         'any other text is not copied' => ["Region of\nthe customer", 'the settings hold a key that is not a field of this preset'],
     ]);
 
+    it('fails as not_configured when a setting that is sent as a header is not visible ASCII, and names the key, never the value', function (string $value): void {
+        $preset = factoryPreset(BaseUrlRule::Fixed, 'https://api.example.test', [new PresetField('workspace', 'Workspace', false, '(?s).+', 'X-Workspace')]);
+        $refusal = notConfigured(fn() => GatewayFactory::create($preset, new NoCredentials(), new FakeTransport(), factoryConfig(null, ['workspace' => $value])));
+
+        expect($refusal->detail)->toBe('the setting workspace is sent as a header and must hold only visible ASCII characters')
+            ->and(str_contains($refusal->getMessage(), $value))->toBeFalse();
+    })->with([
+        'a space' => ['team one'],
+        'a letter outside ASCII' => ['tëam'],
+        'a line break and a second header' => ["team\r\nHost: other.example.org"],
+    ]);
+
+    it('lets a setting that is sent as a header pass when it is visible ASCII, and one that is not sent as a header whatever its characters', function (): void {
+        $preset = factoryPreset(BaseUrlRule::Fixed, 'https://api.example.test', [
+            new PresetField('workspace', 'Workspace', false, '.+', 'X-Workspace'),
+            new PresetField('note', 'Note', false, '.+'),
+        ]);
+
+        expect(GatewayFactory::resolveBaseUrl($preset, factoryConfig(null, ['workspace' => 'team-1', 'note' => 'tëam one'])))->toBe('https://api.example.test');
+    });
+
     it('lets an optional field without a value pass', function (): void {
         $preset = factoryPreset(BaseUrlRule::Fixed, 'https://api.example.test', [new PresetField('api_version', 'API version', false, '[0-9]+')]);
 

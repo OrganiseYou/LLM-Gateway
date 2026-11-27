@@ -141,7 +141,7 @@ function providerNamesIn(string $code): array
 /**
  * The files of the library in which no provider may be named, of any kind (a JSON or a text file counts as much as
  * a PHP file): all of src, except the adapter of a format
- * (src/Adapter/<Format>, but not src/Adapter/Shared) and the preset data (src/Preset, but not its three value
+ * (src/Adapter/<Format>, but not src/Adapter/Shared) and the preset data (src/Preset, but not its four value
  * classes). So src/Contract, src/Loop, src/Testing, src/Transport, src/Adapter/Shared and the files directly under
  * src are in it, and so is a folder that is added later.
  *
@@ -154,7 +154,7 @@ function filesWithoutProviderNames(string $src): array
         $relative = substr($path, strlen($src) + 1);
         $ofOneFormat = str_starts_with($relative, 'Adapter/') && ! str_starts_with($relative, 'Adapter/Shared/');
         $presetData = str_starts_with($relative, 'Preset/')
-            && ! in_array($relative, ['Preset/Preset.php', 'Preset/PresetField.php', 'Preset/BaseUrlRule.php'], true);
+            && ! in_array($relative, ['Preset/Preset.php', 'Preset/PresetField.php', 'Preset/BaseUrlRule.php', 'Preset/ModelOverride.php'], true);
         if (! $ofOneFormat && ! $presetData) {
             $neutral[] = $relative;
         }
@@ -167,7 +167,7 @@ it('names no provider in the contract, the loop, the testing tools, the transpor
     $src = dirname(__DIR__, 2) . '/src';
     $files = filesWithoutProviderNames($src);
 
-    foreach (['Contract/', 'Testing/', 'Transport/', 'Adapter/Shared/', 'Preset/Preset.php', 'GatewayFactory.php'] as $expected) {
+    foreach (['Contract/', 'Testing/', 'Transport/', 'Adapter/Shared/', 'Preset/Preset.php', 'Preset/ModelOverride.php', 'GatewayFactory.php'] as $expected) {
         expect(array_filter($files, fn(string $file): bool => str_starts_with($file, $expected)))
             ->not->toBe([], 'the rule must have found the files of ' . $expected);
     }

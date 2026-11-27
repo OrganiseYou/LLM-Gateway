@@ -35,6 +35,24 @@ All notable changes to this package are written here. The format follows
 - The shared test set gains the answers `ContractFixture::Refused` and `ContractFixture::Withheld`, the failure
   `ContractFailure::RetryForbidden`, the test that a temperature is refused where the capability says none, and the
   test that a response which forbids a retry is not tried again.
+- `Preset\ModelOverride`: adapter options for the models whose name fits a pattern (`*` stands for any run of
+  characters). `Preset::$modelOverrides` holds them and `Preset::optionsFor($model)` gives the options of the preset
+  with every override that fits laid over them, in the order of the list. An override is not a closed list of
+  models: a model that fits none gets the options of the preset.
+- `Preset::withAdapterOptions()`: a copy of a preset with options laid over its own, for a host that learned more
+  about a server than its preset says.
+- `Preset::$storageNote` and `Preset::$storageNoteSource`: one plain sentence on what the provider keeps of a
+  request and how the customer arranges otherwise, with its link.
+- `PresetField::$header` (the last constructor parameter): a setting that is sent as a request header with every
+  request of the gateway, when the customer filled it in. The value is no secret and shows in the attempt reports.
+  The name is an HTTP token without an underscore, not digits only, and never a header of the sign-in, the
+  address, the connection or one that changes the response;
+  a value that is not visible ASCII fails as `not_configured` when the gateway is built.
+- `AbstractAdapter::option()` reads an adapter option, for one model when a model is given.
+  `AbstractAdapter::capabilitiesFromOptions()` reads the capability options every adapter shares (`tool_calling`,
+  `forced_tool_call`, `parallel_tool_calls`, `structured_output`, `tools_with_structured_output`, `streaming`,
+  `model_listing`, `temperature`, `context_length`) over the defaults of a format. A value outside its list is
+  `not_configured`. The README lists the values.
 
 ### Changed
 
@@ -44,6 +62,9 @@ All notable changes to this package are written here. The format follows
   and must answer for the cases `Refused` and `Withheld`, with a fixture or with `NotApplicable` from both
   `answer()` and `stream()`. A `match` over `Testing\ContractFixture` or `Testing\ContractFailure` without a default
   arm must handle the new cases.
+- **Breaking, for a host that wrote its own adapter:** the adapter base now has the final methods `option()` and
+  `capabilitiesFromOptions()`. An adapter with a method of one of these names must rename it. An adapter that sets
+  a header itself which a field of its preset also fills is refused with a `WrongUse` before anything is sent.
 
 ### Security
 

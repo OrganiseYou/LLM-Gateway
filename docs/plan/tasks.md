@@ -169,7 +169,7 @@ the adapters cannot be built on the contract of S1 as it is. Section numbers bel
 - Acceptance: unit tests; the fake and the test adapter pass the shared set; `composer stan` finds no unhandled case.
 
 ### LG-31 · Preset data: options per model, a setting as a header, the storage note
-- Status: todo · Needs: LG-09, LG-11
+- Status: done · Needs: LG-09, LG-11
 - Note: G70, G72.
 - Scope: sections 5.4 and 5.5. `Preset\ModelOverride`; `Preset::$modelOverrides`, `Preset::optionsFor()`,
   `Preset::withAdapterOptions()`, `Preset::$storageNote` with its source; `PresetField::$header`, added by the
@@ -190,6 +190,7 @@ the adapters cannot be built on the contract of S1 as it is. Section numbers bel
 
 ### LG-12 · The chat-completions adapter
 - Status: todo · Needs: LG-29, LG-30, LG-31, LG-32
+- Note: From LG-31: the adapter needs a test with a header setting filled in, to show none of its own headers clashes.
 - Note: From LG-30: the shared set tests the retry sign only on a 503 and a refusal only with text; the adapter needs its own unit tests for a 429 that forbids a retry and for a refusal without text.
 - Note: From LG-29: an empty JSON object sealed as an array comes back as `[]`; an adapter that must send provider data back unchanged seals the provider's raw JSON text as one string, not the decoded arrays.
 - Note: From LG-09: an adapter proves itself with `Testing\ContractTestCase` and an `AdapterFixtures` class; a reason that depends on a specific provider code in the body (for example "unknown model") needs the adapter's own unit test, because the shared set fixes the code its fixtures echo. The same holds for LG-13 to LG-16.
@@ -220,6 +221,7 @@ the adapters cannot be built on the contract of S1 as it is. Section numbers bel
 
 ### LG-14 · The Messages adapter
 - Status: todo · Needs: LG-29, LG-30, LG-31, LG-32
+- Note: From LG-31: the adapter needs a test with a header setting filled in, to show none of its own headers clashes.
 - Note: From LG-30: the shared set tests the retry sign only on a 503 and a refusal only with text; the adapter needs its own unit tests for a 429 that forbids a retry and for a refusal without text.
 - Note: From LG-29: an empty JSON object sealed as an array comes back as `[]`; an adapter that must send provider data back unchanged seals the provider's raw JSON text as one string, not the decoded arrays.
 - Note: G69: the provider documents no default for the maximum of output tokens; the default is preset data
@@ -234,6 +236,7 @@ the adapters cannot be built on the contract of S1 as it is. Section numbers bel
 
 ### LG-15 · The generate-content adapter
 - Status: todo · Needs: LG-29, LG-30, LG-31, LG-32
+- Note: From LG-31: the adapter needs a test with a header setting filled in, to show none of its own headers clashes.
 - Note: From LG-30: the shared set tests the retry sign only on a 503 and a refusal only with text; the adapter needs its own unit tests for a 429 that forbids a retry and for a refusal without text.
 - Note: From LG-29: an empty JSON object sealed as an array comes back as `[]`; an adapter that must send provider data back unchanged seals the provider's raw JSON text as one string, not the decoded arrays.
 - Note: `structured_output_field` is not confirmed: the provider's pages give three forms (section 4.2).
@@ -247,6 +250,7 @@ the adapters cannot be built on the contract of S1 as it is. Section numbers bel
 
 ### LG-16 · The Chat v2 adapter
 - Status: todo · Needs: LG-29, LG-30, LG-31, LG-32
+- Note: From LG-31: the adapter needs a test with a header setting filled in, to show none of its own headers clashes.
 - Note: From LG-30: the shared set tests the retry sign only on a 503 and a refusal only with text; the adapter needs its own unit tests for a 429 that forbids a retry and for a refusal without text.
 - Note: From LG-29: an empty JSON object sealed as an array comes back as `[]`; an adapter that must send provider data back unchanged seals the provider's raw JSON text as one string, not the decoded arrays.
 - Note: `schema_key` is not confirmed: reference against guide (section 4.3).
@@ -263,6 +267,7 @@ the adapters cannot be built on the contract of S1 as it is. Section numbers bel
 
 ### LG-34 · The Responses adapter
 - Status: todo · Needs: LG-29, LG-30, LG-31, LG-32
+- Note: From LG-31: the adapter needs a test with a header setting filled in, to show none of its own headers clashes.
 - Note: From LG-30: the shared set tests the retry sign only on a 503 and a refusal only with text; the adapter needs its own unit tests for a 429 that forbids a retry and for a refusal without text.
 - Note: From LG-29: an empty JSON object sealed as an array comes back as `[]`; an adapter that must send provider data back unchanged seals the provider's raw JSON text as one string, not the decoded arrays.
 - Note: G59 is decided (2026-11-27): the Responses adapter is built. The entries `openai`, `openai-eu`, `azure-openai` and `grok` use it.
@@ -288,6 +293,7 @@ weight is compared with the provider's page first.
 
 ### LG-18 · Presets: Grok, Kimi, STACKIT
 - Status: todo · Needs: LG-12
+- Note: From LG-31: no field of an entry names a header that carries a credential at that provider (the neutral reserved list cannot know provider header names).
 - Note: G59 is decided as (a): the `grok` entry is built on the Responses adapter, so it also needs LG-34. Kimi and STACKIT stay on the chat-completions adapter.
 - Note: The OpenAI Platform preset moved to LG-33, which waits for decision G59; this task does not wait.
 - Note: G59 (open) may later change the adapter of `grok`; it is built on the chat-completions adapter now.
@@ -297,6 +303,7 @@ weight is compared with the provider's page first.
 
 ### LG-19 · Presets: Aleph Alpha (PhariaAI), LightOn (Paradigm), LM Studio, other OpenAI-compatible
 - Status: todo · Needs: LG-12
+- Note: From LG-31: no field of an entry names a header that carries a credential at that provider (the neutral reserved list cannot know provider header names).
 - Scope: the entries `aleph-alpha`, `lighton`, `lm-studio` and `openai-compatible` (section 9, rows 9, 11, 20, 21;
   section 7). The base URL of `aleph-alpha` is used exactly as the customer gave it, with or without `/v1`. LM Studio
   has no key by default. "Other" is G15.
@@ -305,6 +312,7 @@ weight is compared with the provider's page first.
 
 ### LG-20 · Presets: Silo AI, Pleias, Kyutai
 - Status: todo · Needs: LG-12
+- Note: From LG-31: no field of an entry names a header that carries a credential at that provider (the neutral reserved list cannot know provider header names).
 - Note: G62 is decided (2026-11-27): Kyutai is dropped. Build `silo-ai` and `pleias` only; no `kyutai` entry.
 - Scope: the entries `silo-ai`, `pleias` and `kyutai` (section 9, rows 10, 12, 15; section 7). Without a hosted chat
   API: G9. Each description says in one plain sentence what the customer needs to have running. `silo-ai` and
@@ -315,6 +323,7 @@ weight is compared with the provider's page first.
 
 ### LG-21 · Presets: Claude, Gemini and Vertex AI, Cohere, Mistral, Microsoft Copilot / Azure OpenAI
 - Status: todo · Needs: LG-13, LG-14, LG-15, LG-16
+- Note: From LG-31: no field of an entry names a header that carries a credential at that provider (the neutral reserved list cannot know provider header names).
 - Note: G59 is decided as (a): the `azure-openai` entry is built on the Responses adapter, so it also needs LG-34. G62: the catalogue has no `kyutai` entry; its count is twenty.
 - Note: G60, G75: add the catalogue `Preset\Presets` (`all()`, `find()`, `ids()`; section 8) with a test that every entry of section 9 that is built is in it, in that order, and every id is unique.
 - Note: G65: LG-17 is dropped; `azure-openai` is an entry on the chat-completions adapter. G59 (open) may later change its adapter.
@@ -326,6 +335,7 @@ weight is compared with the provider's page first.
 
 ### LG-33 · Presets: OpenAI Platform
 - Status: todo · Needs: LG-34
+- Note: From LG-31: no field of an entry names a header that carries a credential at that provider (the neutral reserved list cannot know provider header names).
 - Note: G59 is decided as (a): these entries are built on the Responses adapter of LG-34.
 - Note: Split from LG-18 so that no other preset waits. When G59 is (a) or (c) it also needs LG-34.
 - Scope: the entries `openai` and `openai-eu` (section 9, rows 1 and 2), on the adapter G59 names. When G59 is (b):
@@ -351,6 +361,7 @@ weight is compared with the provider's page first.
 
 ### LG-23 · The connection check
 - Status: todo · Needs: LG-12
+- Note: From LG-31: the connection check must send through `owned()` so header settings are added and checked.
 - Note: From LG-11 (`docs/design/adapters.md` 6.3, 5.6): for a capability the preset reports "until checked", the check probes the native route whatever the preset reports, so a host can raise it with `Preset::withAdapterOptions()`; the library keeps no result. A sign-in that fails with a status other than 401 or 403 is reported as "no" with that status (one provider answers 400 for a wrong key).
 - Scope: LR-27: five answers (sign-in, model exists, tool call, structured answer, stream), each yes, no or not
   supported, with the provider code. Fixed test text only.

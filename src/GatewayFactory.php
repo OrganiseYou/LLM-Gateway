@@ -45,7 +45,8 @@ final class GatewayFactory
      *
      * @throws GatewayException with the reason not_configured, when the preset needs a base URL and none is given,
      *                          takes none and one is given, a required setting is missing, a setting does not have
-     *                          the form its field asks for, or a setting is not a field of the preset
+     *                          the form its field asks for, a setting that is sent as a header holds a character
+     *                          that is not visible ASCII, or a setting is not a field of the preset
      */
     public static function resolveBaseUrl(Preset $preset, GatewayConfig $config): string
     {
@@ -69,6 +70,11 @@ final class GatewayFactory
             }
             if (! $field->accepts($value)) {
                 throw self::notConfigured('the setting ' . $field->key . ' does not have the form this preset asks for');
+            }
+            // A setting that is sent as a header: no space, no control character and nothing outside ASCII, whatever
+            // the pattern of the field allows. The detail names the key, never the value.
+            if ($field->header !== null && preg_match('/^[\x21-\x7e]+$/D', $value) !== 1) {
+                throw self::notConfigured('the setting ' . $field->key . ' is sent as a header and must hold only visible ASCII characters');
             }
         }
         foreach ($config->settings as $key => $value) {

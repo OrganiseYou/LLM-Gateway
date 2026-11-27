@@ -64,10 +64,13 @@ use Throwable;
  * do, the sign-in headers, the check of a structured answer and the stream of one event for a format without
  * streaming.
  *
+ * It also adds a setting of the customer that the preset sends as a header, and reads the capability options of
+ * the preset.
+ *
  * An adapter for one format extends this class and writes the abstract methods. The class is readonly, so an
  * adapter is readonly too: it keeps nothing between two calls. The constructor is final: a gateway is always built
  * as `new Adapter($preset, $config, $credentials, $transport)`. An adapter reads the data of its preset from
- * `$this->preset` and a setting of the customer with setting(); the clock, the observer and the retry policy are
+ * `$this->preset`, an adapter option with option() and a setting of the customer with setting(); the clock, the observer and the retry policy are
  * the base's alone.
  *
  * A method of an adapter that takes a response or a request should mark that parameter `#[\SensitiveParameter]`
@@ -348,6 +351,80 @@ abstract readonly class AbstractAdapter implements Gateway
     final protected function setting(string $key): ?string
     {
         return $this->config->settings[$key] ?? null;
+    }
+
+    /**
+     * One adapter option of the preset, or null when the preset does not set it. With a model: the option as it is
+     * for that model, with the model overrides of the preset laid over its options. Without a model: the option of
+     * the preset itself, for what is the same for every model (a path, for example).
+     */
+    final protected function option(string $name, ?string $model = null): bool|int|string|null
+    {
+        $options = $model === null ? $this->preset->adapterOptions : $this->preset->optionsFor($model);
+
+        return $options[$name] ?? null;
+    }
+
+    /**
+     * The capabilities of a model: the defaults of the format, with the capability options of the preset and of its
+     * model overrides read over them. Every adapter ends modelCapabilities() with it, so a preset states in the
+     * same words, for every format, where its server differs. Sends nothing.
+     *
+     * The options and their values: `tool_calling` (native, none), `forced_tool_call` (native, emulated, none),
+     * `parallel_tool_calls` (native, none), `structured_output` (native, emulated, none),
+     * `tools_with_structured_output` (native, emulated, none), `streaming` (native, emulated), `model_listing`
+     * (native, none), `temperature` (accepted, not_accepted) and `context_length` (an integer of 1 or more). An
+     * option that is not set leaves the default as it is.
+     *
+     * Without tool calling there is no forced tool call, there are no parallel tool calls and no tools with
+     * structured output; without structured output there are no tools with structured output. That holds whatever
+     * the other options say.
+     *
+     * @throws GatewayException not_configured, when an option holds a value outside its list; the detail names the
+     *                          option, never the value
+     */
+    final protected function capabilitiesFromOptions(string $model, Capabilities $formatDefaults): Capabilities
+    {
+        $options = $this->preset->optionsFor($model);
+
+        $native = ['native' => Support::Native];
+        $none = ['none' => Support::None];
+        $emulated = ['emulated' => Support::Emulated];
+
+        $toolCalling = $this->supportIn($options, 'tool_calling', $native + $none, $formatDefaults->toolCalling);
+        $forcedToolCall = $this->supportIn($options, 'forced_tool_call', $native + $emulated + $none, $formatDefaults->forcedToolCall);
+        $parallelToolCalls = $this->supportIn($options, 'parallel_tool_calls', $native + $none, $formatDefaults->parallelToolCalls);
+        $structuredOutput = $this->supportIn($options, 'structured_output', $native + $emulated + $none, $formatDefaults->structuredOutput);
+        $toolsWithStructuredOutput = $this->supportIn($options, 'tools_with_structured_output', $native + $emulated + $none, $formatDefaults->toolsWithStructuredOutput);
+        $streaming = $this->supportIn($options, 'streaming', $native + $emulated, $formatDefaults->streaming);
+        $modelListing = $this->supportIn($options, 'model_listing', $native + $none, $formatDefaults->modelListing);
+        $temperature = $this->supportIn($options, 'temperature', ['accepted' => Support::Native, 'not_accepted' => Support::None], $formatDefaults->temperature);
+
+        $contextLength = $options['context_length'] ?? $formatDefaults->contextLength;
+        if ($contextLength !== null && (! is_int($contextLength) || $contextLength < 1)) {
+            throw $this->failure(ErrorReason::NotConfigured, 'the option context_length of the preset has a value outside its list');
+        }
+
+        if ($toolCalling === Support::None) {
+            $forcedToolCall = Support::None;
+            $parallelToolCalls = Support::None;
+            $toolsWithStructuredOutput = Support::None;
+        }
+        if ($structuredOutput === Support::None) {
+            $toolsWithStructuredOutput = Support::None;
+        }
+
+        return new Capabilities(
+            $toolCalling,
+            $forcedToolCall,
+            $parallelToolCalls,
+            $structuredOutput,
+            $toolsWithStructuredOutput,
+            $streaming,
+            $modelListing,
+            $contextLength,
+            $temperature,
+        );
     }
 
     /**
@@ -1070,7 +1147,8 @@ abstract readonly class AbstractAdapter implements Gateway
     }
 
     /**
-     * Refuses a request whose address does not start with the base URL of the gateway.
+     * Refuses a request whose address does not start with the base URL of the gateway, and adds the settings that
+     * travel as a header.
      */
     private function owned(#[SensitiveParameter] HttpRequest $template): HttpRequest
     {
@@ -1085,7 +1163,71 @@ abstract readonly class AbstractAdapter implements Gateway
             );
         }
 
-        return $template;
+        return $this->withSettingHeaders($template);
+    }
+
+    /**
+     * The value of one capability option, or the default when the preset does not set it.
+     *
+     * @param array<string, bool|int|string> $options
+     * @param array<string, Support> $values the words of the option
+     * @throws GatewayException not_configured, when the value is not one of the words
+     */
+    private function supportIn(array $options, string $name, array $values, Support $default): Support
+    {
+        if (! array_key_exists($name, $options)) {
+            return $default;
+        }
+
+        $value = $options[$name];
+        if (! is_string($value) || ! isset($values[$value])) {
+            // The name is one of the fixed names above; the value is not copied.
+            throw $this->failure(ErrorReason::NotConfigured, 'the option ' . $name . ' of the preset has a value outside its list');
+        }
+
+        return $values[$value];
+    }
+
+    /**
+     * The request with the settings of the customer that travel as a header: for every field of the preset that
+     * names a header and that the customer filled in. The values were checked when the gateway was built. They are
+     * no secrets: they stand among the plain headers and show in the attempt reports.
+     */
+    private function withSettingHeaders(#[SensitiveParameter] HttpRequest $template): HttpRequest
+    {
+        $headers = [];
+        foreach ($this->preset->fields as $field) {
+            $value = $this->config->settings[$field->key] ?? '';
+            if ($field->header !== null && $value !== '') {
+                $headers[$field->header] = $value;
+            }
+        }
+        if ($headers === []) {
+            return $template;
+        }
+
+        // A name is cast before it is compared, and the headers are joined with a union, which keeps every name as
+        // it is: PHP makes a number of a name of digits only, and a spread would number such a name anew. Neither a
+        // field nor a request takes such a name, so this is a second lock.
+        $taken = [];
+        foreach ($template->headers + $template->secretHeaders as $name => $value) {
+            $taken[strtolower((string) $name)] = true;
+        }
+        foreach ($headers as $name => $value) {
+            if (isset($taken[strtolower((string) $name)])) {
+                // The request is an argument here: the refusal keeps where, not with what.
+                throw new WrongUse('An adapter must not set a header that a field of its preset fills: the base adds it.');
+            }
+        }
+
+        return new HttpRequest(
+            $template->method,
+            $template->url,
+            $template->headers + $headers,
+            $template->secretHeaders,
+            $template->timeoutSeconds,
+            $template->body,
+        );
     }
 
     /**

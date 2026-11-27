@@ -924,7 +924,14 @@ S4. LG-11 may add fields to it; it may not move logic into it.
 customer may replace), `CustomerMust = 'customer_must'` (no default).
 
 `PresetField` (value): `string $key` (throws unless `^[a-z][a-z0-9_]{0,31}$`), `string $label` (throws when empty),
-`bool $required`, `?string $pattern` (a regular expression the value must match; default null).
+`bool $required`, `?string $pattern` (a regular expression the value must match; default null), `?string $header`
+(default null; since LG-31, `adapters.md` 5.5 and G85: the name of a request header the setting is sent in with every
+request when the customer filled it in; throws unless it is an HTTP token without an underscore that is not digits only, when it is a header
+of the sign-in, the address or the connection, or when the field has no `pattern`).
+
+`ModelOverride` (value, since LG-31, `adapters.md` 5.4): `string $pattern` (throws when empty or when it holds a
+control character; `*` stands for any run of characters; compared with the whole model name, case-sensitive),
+`array<string, bool|int|string> $adapterOptions` (as `Preset::$adapterOptions`). Method `matches(string $model): bool`.
 
 `Preset` (value):
 
@@ -943,6 +950,17 @@ customer may replace), `CustomerMust = 'customer_must'` (no default).
 | `dataLocationSource` | `?string` | — The link to that statement. |
 | `sendsNoStoreOption` | `bool` | — True when the adapter sends the provider's option not to store the conversation (LR-31). |
 | `adapterOptions` | `array<string, bool\|int\|string>` | a value is of another type. Differences between servers of one format. |
+| `modelOverrides` | `list<ModelOverride>` | not a list, or a value is no `ModelOverride`. Default `[]`. Since LG-31. |
+| `storageNote` | `string` | — What the provider keeps of a request and how the customer arranges otherwise, in one plain sentence (LR-31). Default `''`. Since LG-31. |
+| `storageNoteSource` | `?string` | — The link to that statement. Default null. Since LG-31. |
+
+Since LG-31 `fields` also throws when a field is sent in the header of `keyHeader` or two fields are sent in the same
+header, compared without case (G85).
+
+Methods (since LG-31): `placeholders(): list<string>`; `optionsFor(string $model): array<string, bool|int|string>`,
+the preset's options overlaid by every override that matches, in list order, a later one over an earlier one;
+`withAdapterOptions(array $options): self`, a copy with these options laid over its own (the overrides are not
+changed and still win for the models they fit).
 
 ### 13.2 `GatewayConfig` (value, root namespace)
 
@@ -982,6 +1000,8 @@ naming the field key, never a value) when:
 3. The rule is `Fixed` and `$config->baseUrl` is not null.
 4. A required field has no value in `$config->settings`, or a value does not match the field's `pattern`.
 5. `$config->settings` holds a key that is not a field of the preset.
+6. Since LG-31: a setting whose field names a `header` holds a character that is not visible ASCII (`0x21` to
+   `0x7E`), whatever the field's `pattern` allows (G85).
 
 Otherwise it returns `new ($preset->adapter)($preset, $config, $credentials, $transport)`.
 
@@ -1020,11 +1040,27 @@ protected function refineReason(HttpResponse $response, ErrorReason $reason): Er
 protected function retryAllowed(HttpResponse $response, ErrorReason $reason): bool;          // default: true (LG-30)
 ```
 
+What the base offers for the options of a preset (final; since LG-31, `adapters.md` 5.4):
+
+```php
+final protected function option(string $name, ?string $model = null): bool|int|string|null;
+final protected function capabilitiesFromOptions(string $model, Capabilities $formatDefaults): Capabilities;
+```
+
+`option()` reads from `Preset::optionsFor($model)` when a model is given, else from the preset's own options; null
+when not set. `capabilitiesFromOptions()` reads the capability options of `adapters.md` 2.3 over the defaults of the
+format; a value outside its list is thrown as `not_configured`; tool calling `none` makes a forced tool call, parallel
+tool calls and tools with structured output `none`, and structured output `none` makes tools with structured output
+`none` (G86). Every adapter's `modelCapabilities()` ends with it.
+
 Rules the base enforces:
 
 - Every URL is `resolveBaseUrl()` plus a path and query from the adapter, through one protected method
   `url(string $path, array $query = []): string`. No other code builds a URL, so the host never changes (LR-29).
 - `capabilities()` is written by each adapter and must send nothing (G27).
+- Since LG-31: a setting whose field names a `header` is added to every request of the gateway (completion, stream,
+  model list, every attempt) among the plain headers, when it is not empty. A request of an adapter that already
+  holds that header is refused as `WrongUse` and nothing is sent (G85).
 - `SseReader::read(iterable<string> $chunks): iterable<SseEvent>` (final, no state between calls) cuts raw chunks into
   events; `SseEvent` (value): `?string $event`, `string $data`, `?string $id`.
 

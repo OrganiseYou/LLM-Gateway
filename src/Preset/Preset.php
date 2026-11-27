@@ -32,6 +32,10 @@ final readonly class Preset
      * @param string|null $dataLocationSource the link to that statement
      * @param bool $sendsNoStoreOption true when the adapter sends the provider's option not to store the conversation
      * @param array<string, bool|int|string> $adapterOptions differences between servers of one format
+     * @param list<ModelOverride> $modelOverrides options for named models, where they differ from the preset's
+     * @param string $storageNote what the provider keeps of a request and how the customer arranges otherwise, in
+     *                            one plain sentence; empty when the preset says nothing
+     * @param string|null $storageNoteSource the link to that statement
      */
     public function __construct(
         public string $id,
@@ -47,6 +51,9 @@ final readonly class Preset
         public ?string $dataLocationSource,
         public bool $sendsNoStoreOption,
         public array $adapterOptions = [],
+        public array $modelOverrides = [],
+        public string $storageNote = '',
+        public ?string $storageNoteSource = null,
     ) {
         if (preg_match('/^[a-z][a-z0-9-]{0,63}$/D', $id) !== 1) {
             throw new InvalidValue('The id of a preset must match ^[a-z][a-z0-9-]{0,63}$.');
@@ -74,12 +81,62 @@ final readonly class Preset
         }
 
         $fieldsByKey = self::fieldsByKey($fields);
+        self::assertFieldHeaders($fieldsByKey, $keyHeader);
 
         if ($defaultBaseUrl !== null) {
             self::assertDefaultBaseUrl($defaultBaseUrl, $fieldsByKey);
         }
 
         self::assertAdapterOptions($adapterOptions);
+        self::assertModelOverrides($modelOverrides);
+    }
+
+    /**
+     * The adapter options for one model: the options of the preset, with those of every model override the name
+     * fits laid over them, in the order of the list. A later override wins from an earlier one, and every override
+     * wins from the preset. A model that fits no override gets the options of the preset.
+     *
+     * @return array<string, bool|int|string>
+     */
+    public function optionsFor(string $model): array
+    {
+        $options = $this->adapterOptions;
+        foreach ($this->modelOverrides as $override) {
+            if ($override->matches($model)) {
+                $options = array_replace($options, $override->adapterOptions);
+            }
+        }
+
+        return $options;
+    }
+
+    /**
+     * A copy of this preset with these options laid over its own; everything else is the same. For a host that
+     * learned more about its server than the preset says: a capability the connection check found, for example.
+     * The model overrides are not changed, and an override still wins from these options for a model it fits.
+     *
+     * @param array<string, bool|int|string> $options
+     */
+    public function withAdapterOptions(array $options): self
+    {
+        return new self(
+            $this->id,
+            $this->label,
+            $this->description,
+            $this->adapter,
+            $this->baseUrlRule,
+            $this->defaultBaseUrl,
+            $this->credentialKinds,
+            $this->keyHeader,
+            $this->fields,
+            $this->dataLocation,
+            $this->dataLocationSource,
+            $this->sendsNoStoreOption,
+            array_replace($this->adapterOptions, $options),
+            $this->modelOverrides,
+            $this->storageNote,
+            $this->storageNoteSource,
+        );
     }
 
     /**
@@ -110,6 +167,45 @@ final readonly class Preset
             if (! is_bool($value) && ! is_int($value) && ! is_string($value)) {
                 throw new InvalidValue('An adapter option must be a boolean, an integer or a string.');
             }
+        }
+    }
+
+    /**
+     * @param array<mixed> $modelOverrides
+     */
+    private static function assertModelOverrides(array $modelOverrides): void
+    {
+        if (! array_is_list($modelOverrides)) {
+            throw new InvalidValue('The model overrides of a preset must be a list.');
+        }
+        foreach ($modelOverrides as $override) {
+            if (! $override instanceof ModelOverride) {
+                throw new InvalidValue('The model overrides of a preset hold a value that is not a model override.');
+            }
+        }
+    }
+
+    /**
+     * A setting is never sent in the header of the key, and no two settings are sent in the same header. Header
+     * names are compared without case.
+     *
+     * @param array<PresetField> $fields
+     */
+    private static function assertFieldHeaders(array $fields, #[SensitiveParameter] ?string $keyHeader): void
+    {
+        $seen = [];
+        foreach ($fields as $field) {
+            if ($field->header === null) {
+                continue;
+            }
+            $lowered = strtolower($field->header);
+            if ($keyHeader !== null && $lowered === strtolower($keyHeader)) {
+                throw new InvalidValue('A field of a preset must not be sent in the header of the key.');
+            }
+            if (isset($seen[$lowered])) {
+                throw new InvalidValue('Two fields of a preset are sent in the same header.');
+            }
+            $seen[$lowered] = true;
         }
     }
 

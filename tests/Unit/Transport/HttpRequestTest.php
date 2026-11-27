@@ -192,6 +192,7 @@ describe('HttpRequest', function (): void {
         'a line break inside' => ["X-A\r\nX-B"],
         'a letter outside ASCII' => ['X-Clé'],
         'a list without names' => [0],
+        'a name of digits only, which PHP keeps as a number' => ['123'],
     ])->throws(InvalidArgumentException::class, 'A header name must be an HTTP token.');
 
     it('throws when a header value holds a line break', function (string $value): void {

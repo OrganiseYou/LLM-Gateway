@@ -66,10 +66,12 @@ describe('the adapter base', function (): void {
 
         expect($methods)->toBe([
             'answer' => 'final',
+            'capabilitiesFromOptions' => 'final',
             'completionRequest' => 'abstract',
             'failure' => 'final',
             'modelCapabilities' => 'abstract',
             'modelsRequest' => 'abstract',
+            'option' => 'final',
             'providerCode' => 'open',
             'readCompletion' => 'abstract',
             'readModels' => 'abstract',
@@ -455,12 +457,12 @@ describe('what a model cannot do', function (): void {
             'this model cannot take tools and a response format in one request',
         ],
         'a temperature for a model that takes none' => [
-            ['temperature' => 'none'],
+            ['temperature' => 'not_accepted'],
             fn() => new Request('model-a', [Message::user('Say hello.')], 30.0, temperature: 0.7, traceId: 'trace-1'),
             'this model takes no temperature',
         ],
         'a temperature of 0.0 for a model that takes none: it is a temperature too' => [
-            ['temperature' => 'none'],
+            ['temperature' => 'not_accepted'],
             fn() => new Request('model-a', [Message::user('Say hello.')], 30.0, temperature: 0.0, traceId: 'trace-1'),
             'this model takes no temperature',
         ],
@@ -470,7 +472,7 @@ describe('what a model cannot do', function (): void {
         $transport = new FakeTransport();
 
         expect(Talk::gateway($transport)->capabilities('model-a')->temperature)->toBe(Support::Native)
-            ->and(Talk::gateway($transport, options: ['temperature' => 'none'])->capabilities('model-a')->temperature)->toBe(Support::None)
+            ->and(Talk::gateway($transport, options: ['temperature' => 'not_accepted'])->capabilities('model-a')->temperature)->toBe(Support::None)
             ->and($transport->requests())->toBe([]);
     });
 
@@ -478,7 +480,7 @@ describe('what a model cannot do', function (): void {
         $transport = (new FakeTransport())->willReturn(Talk::answered())->willReturn(Talk::answered());
 
         $withOne = Talk::gateway($transport)->complete(new Request('model-a', [Message::user('Say hello.')], 30.0, temperature: 0.7));
-        $withNone = Talk::gateway($transport, options: ['temperature' => 'none'])->complete(Talk::request());
+        $withNone = Talk::gateway($transport, options: ['temperature' => 'not_accepted'])->complete(Talk::request());
 
         expect($withOne->text)->toBe('Hello.')
             ->and($withNone->text)->toBe('Hello.')
@@ -489,7 +491,7 @@ describe('what a model cannot do', function (): void {
     it('is refused for a temperature before it is refused by the adapter, and uses no retry', function (): void {
         $clock = new FakeClock();
         $transport = new FakeTransport($clock);
-        $gateway = Talk::gateway($transport, $clock, new RetryPolicy([1.0, 1.0], 60.0), options: ['temperature' => 'none', 'build_fails' => 'exception']);
+        $gateway = Talk::gateway($transport, $clock, new RetryPolicy([1.0, 1.0], 60.0), options: ['temperature' => 'not_accepted', 'build_fails' => 'exception']);
 
         $error = Talk::errorOf(fn() => $gateway->complete(new Request('model-a', [Message::user('Say hello.')], 30.0, temperature: 0.2)));
 

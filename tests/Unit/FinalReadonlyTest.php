@@ -10,12 +10,13 @@ use OrganiseYou\LlmGateway\Contract\Gateway;
 use OrganiseYou\LlmGateway\GatewayConfig;
 use OrganiseYou\LlmGateway\GatewayFactory;
 use OrganiseYou\LlmGateway\Preset\BaseUrlRule;
+use OrganiseYou\LlmGateway\Preset\ModelOverride;
 use OrganiseYou\LlmGateway\Preset\Preset;
 use OrganiseYou\LlmGateway\Preset\PresetField;
 
 it('has only final readonly classes for the configuration, the preset, the event reader and the structured check', function (): void {
     $classes = [
-        GatewayConfig::class, Preset::class, PresetField::class, SseEvent::class, SseReader::class,
+        GatewayConfig::class, Preset::class, PresetField::class, ModelOverride::class, SseEvent::class, SseReader::class,
         StructuredAnswerChecker::class, StructuredOutputEmulation::class,
     ];
 

@@ -655,6 +655,7 @@ you write yourself, as in case (c). The names of the adapter options are the ada
 ```php
 use OrganiseYou\LlmGateway\Contract\Credentials\CredentialKind;
 use OrganiseYou\LlmGateway\Preset\BaseUrlRule;
+use OrganiseYou\LlmGateway\Preset\ModelOverride;
 use OrganiseYou\LlmGateway\Preset\Preset;
 use OrganiseYou\LlmGateway\Preset\PresetField;
 
@@ -677,21 +678,71 @@ $preset = new Preset(
     keyHeader: 'X-Api-Key',
     // What the customer fills in beside the key: key, label, required, and a pattern the whole value must match.
     // A field used in the address must have a pattern. Never put a secret in a field.
-    fields: [new PresetField('region', 'Region', true, '[a-z]{2}[0-9]')],
+    // A fifth value names a request header: the setting is then sent in it with every request, when filled in.
+    fields: [
+        new PresetField('region', 'Region', true, '[a-z]{2}[0-9]'),
+        new PresetField('workspace', 'Workspace', false, 'ws_[a-z0-9]+', 'X-Example-Workspace'),
+    ],
     // Where the provider processes data, as its own documentation says it.
     dataLocation: 'European Union, as the provider states',
     // The link to that statement, or null.
     dataLocationSource: 'https://llm.example.test/docs/data-location',
     // True when the adapter sends the provider's option not to store the conversation.
     sendsNoStoreOption: false,
-    // Where this server differs from the defaults of its format. The adapter defines the names.
+    // Where this server differs from the defaults of its format. The capability options below are the same for
+    // every adapter; the other names are the adapter's own.
     adapterOptions: ['structured_output' => 'emulated'],
+    // Options for named models, where they differ from the rest. * stands for any run of characters.
+    modelOverrides: [new ModelOverride('example-small-*', ['forced_tool_call' => 'none'])],
+    // What the provider keeps of a request and how the customer arranges otherwise, in one plain sentence.
+    storageNote: 'Requests are kept for 30 days; ask the provider for an agreement to keep nothing.',
+    // The link to that statement, or null.
+    storageNoteSource: 'https://llm.example.test/docs/data-storage',
 );
 ```
 
 The customer's values for the fields go in `GatewayConfig::$settings`, here `['region' => 'eu1']`. A value that fills
 a placeholder of the address may hold only letters, digits and `. _ ~ -`, so a setting can never move a request to
 another host.
+
+**A setting as a header.** A field with a header name is sent in that header with every request of the gateway,
+when the customer filled it in: `['region' => 'eu1', 'workspace' => 'ws_12ab']` sends `X-Example-Workspace: ws_12ab`.
+It is a setting, not a secret: it shows in the attempt reports. Such a field must have a pattern, and its value must
+be visible ASCII without a space; otherwise building the gateway fails as `not_configured` and nothing is sent. The
+header name has no underscore, is not digits only, and can never be a header of the sign-in (`Authorization`,
+`Cookie`, the header of the key), one that moves a request (`Host`, `Via`, every `Proxy-…`, `Sec-…` and
+`X-Forwarded-…`), one of the connection and the body (`Content-Type`, `Content-Length`, and the like) or one that
+changes the response (`Accept`, `Accept-Encoding`, `Range`). The list cannot know the headers of your provider: never
+name a header that carries a credential there.
+
+**Capability options.** Every adapter reads these options, with these words. An option you leave out keeps the
+default of the format. A value outside its list fails as `not_configured` when the gateway is asked for capabilities
+or for a call.
+
+| Option | Values |
+|---|---|
+| `tool_calling` | `native`, `none` |
+| `forced_tool_call` | `native`, `emulated`, `none` |
+| `parallel_tool_calls` | `native`, `none` |
+| `structured_output` | `native`, `emulated`, `none` |
+| `tools_with_structured_output` | `native`, `emulated`, `none` |
+| `streaming` | `native`, `emulated` |
+| `model_listing` | `native`, `none` |
+| `temperature` | `accepted`, `not_accepted` |
+| `context_length` | an integer of 1 or more |
+
+Without tool calling there is no forced tool call, there are no parallel tool calls and no tools with structured
+output, whatever the other options say; without structured output there are no tools with structured output.
+
+**Options per model.** What `capabilities()` answers for a model comes from the first that speaks: a model override
+that fits the name, then the options of the preset, then the defaults of the format. Every override that fits is
+used, in the order of the list; a later one wins from an earlier one, so write the general pattern first and the
+exception after it. An override is not a list of the models a preset knows: a model that fits none gets the options
+of the preset. `$preset->optionsFor('example-small-2')` gives the options as they are for that model.
+
+**Changing an option later.** `$preset->withAdapterOptions(['streaming' => 'native'])` gives a copy of the preset
+with these options laid over its own. Use it when you learned more about a server than its preset says. The model
+overrides stay as they are, and still win for the models they fit.
 
 ### (c) A new format
 
@@ -701,6 +752,7 @@ base does everything that is the same for every format.
 **What the base does for you:**
 
 - the sign-in header, for every attempt;
+- the settings of the customer that the preset sends as a header;
 - the retries, the waits and the deadline of the call;
 - the mapping of a failure to one of the eight reasons;
 - the refusal of a request the model cannot do, before anything is sent;
@@ -726,7 +778,10 @@ base does everything that is the same for every format.
 
 **The helpers you use:** `$this->url($path, $query)` builds an address; `$this->answer(...)` builds an answer;
 `$this->failure($reason, $detail, $providerCode)` builds an error to throw; `$this->setting($key)` reads a setting of
-the customer; `$this->preset` holds the preset, with its `adapterOptions`.
+the customer; `$this->option($name)` reads an adapter option of the preset, and `$this->option($name, $model)` reads
+it as the model overrides say it for that model; both give `null` when the option is not set.
+`$this->capabilitiesFromOptions($model, $formatDefaults)` reads the capability options of the preset and its model
+overrides over the defaults of your format: end `modelCapabilities()` with it. `$this->preset` holds the preset.
 
 **Optional: data that must go back unchanged.** Only for a format whose answers hold such data: give your adapter
 the constant `OPAQUE_FORMAT`, hand `$this->seal($text, $toolCalls, $content)` to `answer()` as its last argument, and
@@ -750,6 +805,9 @@ part that is not yours or a message that was changed. The example below has no s
 - Do not keep state. The class is `readonly`; nothing may be remembered between two calls.
 - Do not write a constructor. It is final: a gateway is always built as the factory builds it.
 - Do not send the trace id of the request to the provider.
+- Do not set a header yourself that a field of the preset fills. The base adds it, and refuses a request that
+  already has it.
+- Do not name a method `option` or `capabilitiesFromOptions`: the base has them, and they are final.
 - Do not throw for an answer that does not match its schema, and do not check it yourself: the base does.
 - Mark every parameter that takes a response `#[\SensitiveParameter]` yourself. PHP does not inherit the attribute.
 
@@ -791,17 +849,20 @@ final readonly class ExampleAdapter extends AbstractAdapter
 {
     protected function modelCapabilities(string $model): Capabilities
     {
-        // The same for every model of this format. A preset can say that its server lists no models.
-        return new Capabilities(
+        // The defaults of this format, the same for every model. The capability options of the preset and of its
+        // model overrides are read over them: a preset can say that its server lists no models ('model_listing'
+        // => 'none') or that one model cannot call tools. This example emulates nothing, so a preset for it must
+        // not say "emulated".
+        return $this->capabilitiesFromOptions($model, new Capabilities(
             toolCalling: Support::Native,
             forcedToolCall: Support::Native,
             parallelToolCalls: Support::Native,
             structuredOutput: Support::Native,
             toolsWithStructuredOutput: Support::Native,
             streaming: Support::Native,
-            modelListing: $this->listsModels() ? Support::Native : Support::None,
+            modelListing: Support::Native,
             contextLength: null,
-        );
+        ));
     }
 
     protected function completionRequest(Request $request, bool $stream): HttpRequest
@@ -979,7 +1040,13 @@ final readonly class ExampleAdapter extends AbstractAdapter
 
     private function listsModels(): bool
     {
-        return ($this->preset->adapterOptions['lists_models'] ?? true) === true;
+        // An option of the preset itself, the same for every model; null when the preset does not set it. The same
+        // words as capabilities() takes, and the same refusal for any other value: nothing is sent then.
+        return match ($this->option('model_listing')) {
+            null, 'native' => true,
+            'none' => false,
+            default => throw $this->failure(ErrorReason::NotConfigured, 'the option model_listing of the preset has a value outside its list'),
+        };
     }
 
     /**

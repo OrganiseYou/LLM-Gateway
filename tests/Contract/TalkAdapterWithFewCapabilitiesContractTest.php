@@ -20,6 +20,6 @@ final class TalkAdapterWithFewCapabilitiesContractTest extends ContractTestCase
 {
     protected function subject(RetryPolicy $retry): ContractSubject
     {
-        return new AdapterSubject(Talk::preset(['tools' => 'none', 'structured' => 'none', 'streams' => false, 'lists_models' => false, 'temperature' => 'none']), new BearerKey(self::MARKER_KEY), new TalkFixtures(), 'model-a', $retry);
+        return new AdapterSubject(Talk::preset(['tools' => 'none', 'structured' => 'none', 'streams' => false, 'lists_models' => false, 'temperature' => 'not_accepted']), new BearerKey(self::MARKER_KEY), new TalkFixtures(), 'model-a', $retry);
     }
 }

@@ -16,6 +16,7 @@ use OrganiseYou\LlmGateway\Contract\ModelInfo;
 use OrganiseYou\LlmGateway\Contract\OpaquePart;
 use OrganiseYou\LlmGateway\Contract\Request;
 use OrganiseYou\LlmGateway\Contract\Role;
+use OrganiseYou\LlmGateway\Contract\Secret;
 use OrganiseYou\LlmGateway\Contract\Stream\StreamFinished;
 use OrganiseYou\LlmGateway\Contract\Stream\TextDelta;
 use OrganiseYou\LlmGateway\Contract\Stream\ToolCallCompleted;
@@ -47,7 +48,9 @@ use SensitiveParameter;
  * that answer in the next request. It has no neutral form: the adapter seals it into the opaque part of the answer
  * and sends it back only when unseal() gives it.
  *
- * What a server of this format can do is told by the adapter options of the preset. With the option "structured" as
+ * What a server of this format can do is told by the adapter options of the preset: the format's own ("tools",
+ * "structured", "streams", …) and, over them, the capability options every adapter reads ("tool_calling",
+ * "temperature", …), also per model through the model overrides of the preset. With the option "structured" as
  * "emulated" the server takes no "shape": the adapter puts the schema in the system text instead. A body with
  * "shaped" stands for a format that gets the structured answer its own way: "shaped_issue" makes it an unusable one.
  */
@@ -57,31 +60,33 @@ final readonly class TalkAdapter extends AbstractAdapter
 
     protected function modelCapabilities(string $model): Capabilities
     {
-        if ($this->option('capabilities_fail', false) === true) {
+        if ($this->own('capabilities_fail', false) === true) {
             throw $this->failure(ErrorReason::NotConfigured, 'this server is not set up for the model');
         }
 
         $tools = $this->support('tools');
         $structured = $this->support('structured');
 
-        return new Capabilities(
+        // What the made-up format's own options say are its defaults; the capability options every adapter reads
+        // (tool_calling, structured_output, temperature, …) and the model overrides of the preset go over them.
+        return $this->capabilitiesFromOptions($model, new Capabilities(
             toolCalling: $tools,
             forcedToolCall: $tools === Support::None ? Support::None : $this->support('forced'),
             parallelToolCalls: $tools,
             structuredOutput: $structured,
             toolsWithStructuredOutput: $tools === Support::None || $structured === Support::None ? Support::None : $this->support('tools_with_structured'),
-            streaming: $this->option('streams', true) === true ? Support::Native : Support::Emulated,
-            modelListing: $this->option('lists_models', true) === true ? Support::Native : Support::None,
+            streaming: $this->own('streams', true) === true ? Support::Native : Support::Emulated,
+            modelListing: $this->own('lists_models', true) === true ? Support::Native : Support::None,
             contextLength: null,
-            temperature: $this->support('temperature'),
-        );
+        ));
     }
 
     protected function completionRequest(Request $request, bool $stream): HttpRequest
     {
         $this->breakWhileBuilding($request->messages[0]->text());
 
-        $longest = $this->option('max_tool_name', 0);
+        // An option that can differ per model is read with the model of the request.
+        $longest = $this->own('max_tool_name', 0, $request->model);
         foreach ($request->tools as $tool) {
             if (is_int($longest) && $longest > 0 && strlen($tool->name) > $longest) {
                 throw $this->failure(ErrorReason::Rejected, 'a tool name is longer than this format allows');
@@ -89,7 +94,7 @@ final readonly class TalkAdapter extends AbstractAdapter
         }
 
         // A server without structured output of its own: the schema goes into the system text, as the last of it.
-        $emulated = $request->responseFormat !== null && $this->support('structured') === Support::Emulated;
+        $emulated = $request->responseFormat !== null && $this->modelCapabilities($request->model)->structuredOutput === Support::Emulated;
         $instructions = $request->responseFormat !== null && $emulated
             ? ['who' => Role::System->value, 'say' => (new StructuredOutputEmulation())->instructions($request->responseFormat)]
             : null;
@@ -111,15 +116,16 @@ final readonly class TalkAdapter extends AbstractAdapter
             $lines[] = $instructions;
         }
 
-        $foreign = $this->option('foreign_url', '');
+        $foreign = $this->own('foreign_url', '');
         $url = is_string($foreign) && $foreign !== '' ? $foreign : $this->url('/talk', $stream ? ['flow' => 1] : []);
 
         return new HttpRequest(
             'POST',
             $url,
             // What a careless adapter does: the trace id of the caller, sent to the provider.
-            $this->option('sends_trace', false) === true ? ['Content-Type' => 'application/json', 'X-Trace' => (string) $request->traceId] : ['Content-Type' => 'application/json'],
-            [],
+            $this->own('sends_trace', false) === true ? ['Content-Type' => 'application/json', 'X-Trace' => (string) $request->traceId] : ['Content-Type' => 'application/json'],
+            // A format that signs a request with a second secret of its own, when the preset asks for it.
+            $this->own('sends_seal', false) === true ? ['X-Talk-Seal' => new Secret('seal-of-the-test')] : [],
             $request->timeoutSeconds,
             $this->encoded([
                 'model' => $request->model,
@@ -154,7 +160,7 @@ final readonly class TalkAdapter extends AbstractAdapter
      */
     private function breakWhileBuilding(#[SensitiveParameter] string $text): void
     {
-        $how = $this->option('build_fails', '');
+        $how = $this->own('build_fails', '');
         if ($how === 'exception') {
             throw new RuntimeException('Could not build the request for: ' . $text);
         }
@@ -215,7 +221,7 @@ final readonly class TalkAdapter extends AbstractAdapter
      */
     private function asideOf(Message $message): array|string|null
     {
-        $check = $this->option('aside_check', 'sealed');
+        $check = $this->own('aside_check', 'sealed');
         if ($check === 'sealed') {
             return $this->unseal($message);
         }
@@ -288,7 +294,7 @@ final readonly class TalkAdapter extends AbstractAdapter
     {
         $this->breakWhileBuilding('the model list');
 
-        if ($this->option('lists_models', true) !== true) {
+        if ($this->own('lists_models', true) !== true) {
             return null;
         }
 
@@ -347,7 +353,7 @@ final readonly class TalkAdapter extends AbstractAdapter
             self::errorWith($response->body);
         }
 
-        return $again !== false || $this->option('ignores_no_retry', false) === true;
+        return $again !== false || $this->own('ignores_no_retry', false) === true;
     }
 
     protected function retryAfterSeconds(#[SensitiveParameter] HttpResponse $response): ?float
@@ -362,14 +368,18 @@ final readonly class TalkAdapter extends AbstractAdapter
         return is_int($wait) || is_float($wait) ? (float) $wait : parent::retryAfterSeconds($response);
     }
 
-    private function option(string $name, bool|int|string $default): bool|int|string
+    /**
+     * An option of this made-up format, or its default. With a model: as the model overrides of the preset say it
+     * for that model.
+     */
+    private function own(string $name, bool|int|string $default, ?string $model = null): bool|int|string
     {
-        return $this->preset->adapterOptions[$name] ?? $default;
+        return $this->option($name, $model) ?? $default;
     }
 
     private function support(string $name): Support
     {
-        $value = $this->option($name, 'native');
+        $value = $this->own($name, 'native');
 
         return is_string($value) ? Support::from($value) : Support::None;
     }
