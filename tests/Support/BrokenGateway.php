@@ -55,6 +55,10 @@ final class BrokenGateway implements Gateway
     public const string OPAQUE_IN_TEXT = 'repeats the opaque data in the text of the answer and in a text event';
     public const string KEY_IN_OPAQUE = 'lets the key the provider repeated into the opaque part of an answer';
     public const string OPAQUE_IN_DETAIL = 'repeats the opaque data of a request in the detail of an error';
+    public const string REFUSAL_AS_STOP = 'says of an answer the model declined to give that it ended by itself';
+    public const string THROWS_WITHHELD = 'fails as provider_error for an answer the provider withheld';
+    public const string WITHHELD_AS_STOP = 'says of an answer the provider withheld that it ended by itself';
+    public const string WAIT_AFTER_NO_RETRY = 'tells a wait in the error of a response that forbids a retry';
 
     public function __construct(private readonly Gateway $inner, private readonly string $fault, private readonly ?Capabilities $says = null) {}
 
@@ -72,12 +76,17 @@ final class BrokenGateway implements Gateway
                 self::KEY_AS_CODE => new GatewayException($error->reason, $error->traceId, $error->httpStatus, ContractTestCase::MARKER_KEY, null, $error->attempts),
                 self::INVENTED_CODE => new GatewayException($error->reason, $error->traceId, $error->httpStatus, 'invented_code', null, $error->attempts),
                 self::OPAQUE_IN_DETAIL => new GatewayException($error->reason, $error->traceId, $error->httpStatus, null, null, $error->attempts, self::opaqueDetail($request) ?? $error->detail),
+                self::WAIT_AFTER_NO_RETRY => self::withAWait($error),
                 default => $error,
             };
         }
 
         if ($this->fault === self::THROWS_UNUSABLE && $answer->structured?->isUsable() === false) {
             throw new GatewayException(ErrorReason::ProviderError, $answer->traceId, 200, null, null, 1, 'the answer does not match the schema');
+        }
+        if ($this->fault === self::THROWS_WITHHELD && self::isWithheld($answer)) {
+            // What a gateway did before a withheld answer was an answer.
+            throw new GatewayException(ErrorReason::ProviderError, $answer->traceId, 200, null, null, 1, 'the answer has no text and no tool call');
         }
 
         return $this->changed($answer);
@@ -135,6 +144,9 @@ final class BrokenGateway implements Gateway
                         unset($ignored);
                     }
                 }
+                if ($this->fault === self::WAIT_AFTER_NO_RETRY) {
+                    $error = self::withAWait($error);
+                }
                 $event = new StreamFailed(
                     new GatewayException(
                         $error->reason,
@@ -148,6 +160,11 @@ final class BrokenGateway implements Gateway
                     $event->textSoFar,
                     $event->toolCallsSoFar,
                 );
+            }
+            if ($event instanceof StreamFinished && $this->fault === self::THROWS_WITHHELD && self::isWithheld($event->answer)) {
+                yield new StreamFailed(new GatewayException(ErrorReason::ProviderError, $event->answer->traceId, 200, null, null, 1, 'the answer has no text and no tool call'), '', []);
+
+                return;
             }
             if ($event instanceof StreamFinished) {
                 if ($this->fault === self::OPAQUE_IN_TEXT && $event->answer->opaque !== null) {
@@ -186,7 +203,11 @@ final class BrokenGateway implements Gateway
             $answer->text . $moreText,
             $structured,
             $answer->toolCalls,
-            $answer->finishReason,
+            match (true) {
+                $this->fault === self::REFUSAL_AS_STOP && $answer->finishReason === FinishReason::Refusal,
+                $this->fault === self::WITHHELD_AS_STOP && $answer->finishReason === FinishReason::ContentFilter => FinishReason::Stop,
+                default => $answer->finishReason,
+            },
             $answer->model,
             $this->fault === self::DROPS_USAGE ? new Usage(null, null) : $answer->usage,
             $answer->latencyMs,
@@ -194,6 +215,23 @@ final class BrokenGateway implements Gateway
             $this->fault === self::OWN_TRACE_ID ? 'trace-of-the-broken' : $answer->traceId,
             $opaque,
         );
+    }
+
+    private static function isWithheld(Answer $answer): bool
+    {
+        return $answer->text === '' && $answer->toolCalls === [] && $answer->finishReason === FinishReason::ContentFilter;
+    }
+
+    /**
+     * The error with a wait of 7 seconds, when its reason may carry one.
+     */
+    private static function withAWait(GatewayException $error): GatewayException
+    {
+        if ($error->reason !== ErrorReason::RateLimited && $error->reason !== ErrorReason::Unavailable) {
+            return $error;
+        }
+
+        return new GatewayException($error->reason, $error->traceId, $error->httpStatus, $error->providerCode, 7, $error->attempts, $error->detail);
     }
 
     /**

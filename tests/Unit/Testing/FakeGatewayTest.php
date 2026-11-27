@@ -59,9 +59,9 @@ function answerForTheFake(string $text = 'Hello.', FinishReason $finish = Finish
     return new Answer($text, $structured, array_values($calls), $finish, 'model-a-0001', new Usage(3, 2), 12, 2, 'scripted');
 }
 
-function capabilitiesForTheFake(Support $tools = Support::Native, Support $structured = Support::Native, Support $both = Support::Native, Support $forced = Support::Native, Support $models = Support::Native): Capabilities
+function capabilitiesForTheFake(Support $tools = Support::Native, Support $structured = Support::Native, Support $both = Support::Native, Support $forced = Support::Native, Support $models = Support::Native, Support $temperature = Support::Native): Capabilities
 {
-    return new Capabilities($tools, $forced, $tools, $structured, $both, Support::Native, $models, null);
+    return new Capabilities($tools, $forced, $tools, $structured, $both, Support::Native, $models, null, $temperature);
 }
 
 it('is a gateway, final and not readonly, with no state outside the object', function (): void {
@@ -500,5 +500,88 @@ describe('an opaque part', function (): void {
         $sent = $gateway->requests()[0]->messages;
 
         expect($sent[count($sent) - 2]->parts[0])->toBe($foreign);
+    });
+});
+
+describe('an answer without text and without a tool call', function (): void {
+    it('is returned when its finish reason explains it, through complete() and through a stream', function (FinishReason $finish): void {
+        $empty = answerForTheFake('', $finish);
+        $fake = (new FakeGateway())->willAnswer($empty)->willAnswer($empty)->willStream(new StreamFinished($empty));
+
+        $answer = $fake->complete(requestOfTheFake());
+        $whole = Talk::events($fake->stream(requestOfTheFake()));
+        $streamed = Talk::events($fake->stream(requestOfTheFake()));
+
+        expect($answer->text)->toBe('')
+            ->and($answer->toolCalls)->toBe([])
+            ->and($answer->finishReason)->toBe($finish)
+            ->and($answer->traceId)->toBe('trace-1')
+            ->and(Talk::finishedIn($whole)->answer->finishReason)->toBe($finish)
+            ->and(Talk::finishedIn($streamed)->answer->finishReason)->toBe($finish)
+            ->and($fake->remaining())->toBe(0);
+    })->with([FinishReason::Length, FinishReason::Refusal, FinishReason::ContentFilter]);
+
+    it('is a provider error with every other finish reason, thrown by complete() and the last event of a stream', function (FinishReason $finish): void {
+        $empty = answerForTheFake('', $finish);
+        $fake = (new FakeGateway())->willAnswer($empty)->willAnswer($empty);
+
+        $error = Talk::errorOf(fn() => $fake->complete(requestOfTheFake()));
+        $events = Talk::events($fake->stream(requestOfTheFake()));
+
+        expect($error->reason)->toBe(ErrorReason::ProviderError)
+            ->and($error->detail)->toBe('the answer has no text and no tool call')
+            ->and($events)->toHaveCount(1)
+            ->and(Talk::failedIn($events)->error->reason)->toBe(ErrorReason::ProviderError);
+    })->with([FinishReason::Stop, FinishReason::ToolCalls, FinishReason::Other]);
+
+    it('keeps the text of a scripted refusal, and checks it against a response format as any text', function (): void {
+        $fake = (new FakeGateway())
+            ->willAnswer(answerForTheFake('I cannot help with that.', FinishReason::Refusal))
+            ->willAnswer(answerForTheFake('I cannot help with that.', FinishReason::Refusal));
+
+        $plain = $fake->complete(requestOfTheFake());
+        $formatted = $fake->complete(requestOfTheFake(formatForTheFake()));
+
+        expect($plain->text)->toBe('I cannot help with that.')
+            ->and($plain->finishReason)->toBe(FinishReason::Refusal)
+            ->and($formatted->structured?->isUsable())->toBeFalse()
+            ->and($formatted->structured?->issues[0]->kind)->toBe(StructuredIssueKind::NotJson);
+    });
+});
+
+describe('a temperature', function (): void {
+    function requestWithATemperature(float $temperature = 0.0): Request
+    {
+        return new Request('model-a', [Message::user('Say hello.')], 30.0, temperature: $temperature, traceId: 'trace-1');
+    }
+
+    it('is refused as not_supported for a model that takes none, and uses no scripted entry', function (float $temperature): void {
+        $fake = (new FakeGateway())->withCapabilities(capabilitiesForTheFake(temperature: Support::None))->willAnswerText('Hello.');
+
+        $error = Talk::errorOf(fn() => $fake->complete(requestWithATemperature($temperature)));
+        $events = Talk::events($fake->stream(requestWithATemperature($temperature)));
+
+        expect($error->reason)->toBe(ErrorReason::NotSupported)
+            ->and($error->detail)->toBe('this model takes no temperature')
+            ->and($error->attempts)->toBe(0)
+            ->and($error->httpStatus)->toBeNull()
+            ->and($error->traceId)->toBe('trace-1')
+            ->and($events)->toHaveCount(1)
+            ->and(Talk::failedIn($events)->error->reason)->toBe(ErrorReason::NotSupported)
+            ->and(Talk::failedIn($events)->error->detail)->toBe('this model takes no temperature')
+            ->and($fake->remaining())->toBe(1)
+            ->and($fake->requests())->toHaveCount(2);
+    })->with([[0.0], [0.7], [1.0]]);
+
+    it('is taken when the capabilities say so, when none were given, and a request without one is always answered', function (): void {
+        $native = (new FakeGateway())->withCapabilities(capabilitiesForTheFake())->willAnswerText('Hello.');
+        $untold = (new FakeGateway())->willAnswerText('Hello.');
+        $none = (new FakeGateway())->withCapabilities(capabilitiesForTheFake(temperature: Support::None))->willAnswerText('Hello.');
+
+        expect($native->complete(requestWithATemperature(0.7))->text)->toBe('Hello.')
+            ->and($untold->complete(requestWithATemperature(0.7))->text)->toBe('Hello.')
+            ->and($untold->capabilities('model-a')->temperature)->toBe(Support::Native)
+            ->and($none->complete(requestOfTheFake())->text)->toBe('Hello.')
+            ->and($none->capabilities('model-a')->temperature)->toBe(Support::None);
     });
 });

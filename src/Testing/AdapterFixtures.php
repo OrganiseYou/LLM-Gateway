@@ -19,8 +19,10 @@ interface AdapterFixtures
 {
     /**
      * The whole successful response (status 200 to 299) that holds what the case says. NotApplicable, with the
-     * reason, only for ContractFixture::ToolCallWithOpaqueData and only when the format has no data that must go
-     * back unchanged: for every other case it fails the test.
+     * reason, only for the three cases a format may lack: ContractFixture::ToolCallWithOpaqueData when the format
+     * has no data that must go back unchanged, ContractFixture::Refused when it cannot tell a refusal from an
+     * answer that ended by itself, and ContractFixture::Withheld when it never says that an output was withheld.
+     * For every other case it fails the test.
      */
     public function answer(ContractFixture $fixture): HttpResponse|NotApplicable|null;
 
@@ -40,6 +42,16 @@ interface AdapterFixtures
      *                     can repeat a key; nothing of it may reach an output of the gateway.
      */
     public function failed(int $status, string $echo): HttpResponse;
+
+    /**
+     * The failed response, changed so that it says itself that the request must not be tried again, the way the
+     * format documents it: a header or a field of the error body. The status stays, and so does the text the body
+     * repeats. The gateway must then fail at once, with the reason of the status. NotApplicable, with the reason,
+     * for a format that has no such sign.
+     *
+     * @param HttpResponse $failed what failed() gave for the status 503
+     */
+    public function retryForbidden(HttpResponse $failed): HttpResponse|NotApplicable;
 
     /**
      * A response with the status 200 whose body is an error in the shape of the format, with the text

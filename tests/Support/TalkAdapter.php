@@ -38,8 +38,10 @@ use SensitiveParameter;
  *
  * The format, "talk": a completion is POST /talk with {"model", "stream", "lines": [{"who", "say", "aside"}],
  * "tools", "shape"}; its answer is {"say", "aside", "calls": [{"ref", "tool", "input"}], "end", "by", "used": {"in",
- * "out"}}; an error is {"fault": {"code", "wait"}}; a stream has the events say, aside, call_open, call, used, end
- * and fault; the models are GET /catalog with {"items": [{"key", "title", "window"}]}.
+ * "out"}}; an error is {"fault": {"code", "wait", "again"}}; a stream has the events say, aside, call_open, call,
+ * used, end and fault; the models are GET /catalog with {"items": [{"key", "title", "window"}]}. The "end" of an
+ * answer is done, calls, cut, blocked (the server withheld the output) or refused (the model declined). A fault
+ * with "again": false says that the request must not be tried again.
  *
  * An "aside" is what a server of this format writes beside an answer and wants back, unchanged, on the line of
  * that answer in the next request. It has no neutral form: the adapter seals it into the opaque part of the answer
@@ -71,6 +73,7 @@ final readonly class TalkAdapter extends AbstractAdapter
             streaming: $this->option('streams', true) === true ? Support::Native : Support::Emulated,
             modelListing: $this->option('lists_models', true) === true ? Support::Native : Support::None,
             contextLength: null,
+            temperature: $this->support('temperature'),
         );
     }
 
@@ -125,6 +128,7 @@ final readonly class TalkAdapter extends AbstractAdapter
                 'tools' => array_map(fn($tool): string => $tool->name, $request->tools),
                 'shape' => $emulated ? null : $request->responseFormat?->name,
                 'dialect' => $this->setting('dialect'),
+                ...($request->temperature === null ? [] : ['heat' => $request->temperature]),
             ]),
         );
     }
@@ -326,6 +330,26 @@ final readonly class TalkAdapter extends AbstractAdapter
         };
     }
 
+    /**
+     * A fault with "again": false must not be tried again. The option "ignores_no_retry" makes the adapter
+     * careless, for the test that the shared test set catches it. The other values of "again" stand for an adapter
+     * whose own code fails here: with an exception, or with an error.
+     */
+    protected function retryAllowed(#[SensitiveParameter] HttpResponse $response, ErrorReason $reason): bool
+    {
+        $fault = json_decode($response->body, true);
+        $again = is_array($fault) && is_array($fault['fault'] ?? null) ? $fault['fault']['again'] ?? null : null;
+
+        if ($again === 'adapter_throws') {
+            throw new RuntimeException('Could not read: ' . $response->body);
+        }
+        if ($again === 'adapter_breaks') {
+            self::errorWith($response->body);
+        }
+
+        return $again !== false || $this->option('ignores_no_retry', false) === true;
+    }
+
     protected function retryAfterSeconds(#[SensitiveParameter] HttpResponse $response): ?float
     {
         $fault = json_decode($response->body, true);
@@ -434,6 +458,7 @@ final readonly class TalkAdapter extends AbstractAdapter
             'calls' => FinishReason::ToolCalls,
             'cut' => FinishReason::Length,
             'blocked' => FinishReason::ContentFilter,
+            'refused' => FinishReason::Refusal,
             default => FinishReason::Other,
         };
     }

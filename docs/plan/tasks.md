@@ -157,7 +157,7 @@ the adapters cannot be built on the contract of S1 as it is. Section numbers bel
   holds the test key; no class, case or field name holds a provider name.
 
 ### LG-30 · Contract: finish reasons, temperature as a capability, the retry hook
-- Status: todo · Needs: LG-09, LG-11
+- Status: done · Needs: LG-09, LG-11
 - Note: G67, G68, G71. One break of S1: a `match` over `FinishReason` without a default arm.
 - Scope: sections 5.2, 5.3 and 5.6. `FinishReason::Refusal`; an answer without text and without a tool call is
   returned when its finish reason is `Length`, `Refusal` or `ContentFilter` (the adapter base and the fake);
@@ -190,6 +190,7 @@ the adapters cannot be built on the contract of S1 as it is. Section numbers bel
 
 ### LG-12 · The chat-completions adapter
 - Status: todo · Needs: LG-29, LG-30, LG-31, LG-32
+- Note: From LG-30: the shared set tests the retry sign only on a 503 and a refusal only with text; the adapter needs its own unit tests for a 429 that forbids a retry and for a refusal without text.
 - Note: From LG-29: an empty JSON object sealed as an array comes back as `[]`; an adapter that must send provider data back unchanged seals the provider's raw JSON text as one string, not the decoded arrays.
 - Note: From LG-09: an adapter proves itself with `Testing\ContractTestCase` and an `AdapterFixtures` class; a reason that depends on a specific provider code in the body (for example "unknown model") needs the adapter's own unit test, because the shared set fixes the code its fixtures echo. The same holds for LG-13 to LG-16.
 - Note: G34: no closed list of models; an unknown model gets the format's default capabilities; a preset can state different capabilities through `adapterOptions` and `modelOverrides`. The same holds for LG-13 to LG-16.
@@ -219,6 +220,7 @@ the adapters cannot be built on the contract of S1 as it is. Section numbers bel
 
 ### LG-14 · The Messages adapter
 - Status: todo · Needs: LG-29, LG-30, LG-31, LG-32
+- Note: From LG-30: the shared set tests the retry sign only on a 503 and a refusal only with text; the adapter needs its own unit tests for a 429 that forbids a retry and for a refusal without text.
 - Note: From LG-29: an empty JSON object sealed as an array comes back as `[]`; an adapter that must send provider data back unchanged seals the provider's raw JSON text as one string, not the decoded arrays.
 - Note: G69: the provider documents no default for the maximum of output tokens; the default is preset data
   (`default_max_output_tokens`).
@@ -232,6 +234,7 @@ the adapters cannot be built on the contract of S1 as it is. Section numbers bel
 
 ### LG-15 · The generate-content adapter
 - Status: todo · Needs: LG-29, LG-30, LG-31, LG-32
+- Note: From LG-30: the shared set tests the retry sign only on a 503 and a refusal only with text; the adapter needs its own unit tests for a 429 that forbids a retry and for a refusal without text.
 - Note: From LG-29: an empty JSON object sealed as an array comes back as `[]`; an adapter that must send provider data back unchanged seals the provider's raw JSON text as one string, not the decoded arrays.
 - Note: `structured_output_field` is not confirmed: the provider's pages give three forms (section 4.2).
 - Scope: `Adapter\Gemini\GenerateContentAdapter`, section 4.2, with 5.1 (thought signatures), 5.2 (a blocked prompt
@@ -244,6 +247,7 @@ the adapters cannot be built on the contract of S1 as it is. Section numbers bel
 
 ### LG-16 · The Chat v2 adapter
 - Status: todo · Needs: LG-29, LG-30, LG-31, LG-32
+- Note: From LG-30: the shared set tests the retry sign only on a 503 and a refusal only with text; the adapter needs its own unit tests for a 429 that forbids a retry and for a refusal without text.
 - Note: From LG-29: an empty JSON object sealed as an array comes back as `[]`; an adapter that must send provider data back unchanged seals the provider's raw JSON text as one string, not the decoded arrays.
 - Note: `schema_key` is not confirmed: reference against guide (section 4.3).
 - Scope: `Adapter\Cohere\ChatV2Adapter`, section 4.3, with 5.1 (the tool plan), 5.2, 5.9 and section 10.
@@ -259,6 +263,7 @@ the adapters cannot be built on the contract of S1 as it is. Section numbers bel
 
 ### LG-34 · The Responses adapter
 - Status: todo · Needs: LG-29, LG-30, LG-31, LG-32
+- Note: From LG-30: the shared set tests the retry sign only on a 503 and a refusal only with text; the adapter needs its own unit tests for a 429 that forbids a retry and for a refusal without text.
 - Note: From LG-29: an empty JSON object sealed as an array comes back as `[]`; an adapter that must send provider data back unchanged seals the provider's raw JSON text as one string, not the decoded arrays.
 - Note: G59 is decided (2026-11-27): the Responses adapter is built. The entries `openai`, `openai-eu`, `azure-openai` and `grok` use it.
 - Note: Starts only when G59 is decided as (a) or (c); dropped when it is decided as (b). See section 3.

@@ -60,12 +60,14 @@ use PHPUnit\Framework\TestCase;
  * do fails. A server with other capabilities is another test class with another preset.
  *
  * Expect skipped tests, each with its reason: that is the set saying what it did not check, not a fault. A gateway
- * that can do everything and streams natively skips six: the five tests of a refusal (tools, a forced tool call, a
- * response format, tools with a response format, the model list), because there is nothing to refuse, and the
- * test of the stream of a gateway without streaming. A gateway that lacks a capability skips the scenarios that
- * need it instead, and its refusal test runs. More can be skipped by what the fixtures declare as not applicable
- * (an error inside a successful response, a request the format cannot carry, and the five tests of an answer with
- * opaque data for a format that has no such data) or by PHP leaving the arguments out of traces. A project that
+ * that can do everything and streams natively skips seven: the six tests of a refusal (tools, a forced tool call, a
+ * response format, tools with a response format, a temperature, the model list), because there is nothing to
+ * refuse, and the test of the stream of a gateway without streaming. A gateway that lacks a capability skips the
+ * scenarios that need it instead, and its refusal test runs. More can be skipped by what the fixtures declare as
+ * not applicable (an error inside a successful response, a request the format cannot carry, a response that
+ * forbids a retry, the five tests of an answer with opaque data for a format that has no such data, and the two
+ * tests each of a refusal and of a withheld answer for a format that does not tell them) or by PHP leaving the
+ * arguments out of traces. A project that
  * fails its run on a skipped test should exclude none of them: it will see these skips, and should allow them for
  * the classes that extend this one.
  *
@@ -180,6 +182,16 @@ abstract class ContractTestCase extends TestCase
     public function testAToolCallBesideAResponseFormatHasNoStructuredResult(): void
     {
         $this->assertAnswered(ContractFixture::ToolCallBesideResponseFormat, false);
+    }
+
+    public function testAnAnswerTheModelDeclinedToGiveIsAnAnswerWithItsOwnFinishReason(): void
+    {
+        $this->assertAnswered(ContractFixture::Refused, false);
+    }
+
+    public function testAnAnswerTheProviderWithheldIsAnAnswerWithoutTextNotAnError(): void
+    {
+        $this->assertAnswered(ContractFixture::Withheld, false);
     }
 
     public function testAnAnswerWithoutTextAndWithoutAToolCallIsAProviderError(): void
@@ -372,6 +384,16 @@ abstract class ContractTestCase extends TestCase
         $this->assertAnswered(ContractFixture::ToolCallBesideResponseFormat, true);
     }
 
+    public function testAStreamOfAnAnswerTheModelDeclinedToGive(): void
+    {
+        $this->assertAnswered(ContractFixture::Refused, true);
+    }
+
+    public function testAStreamOfAnAnswerTheProviderWithheldEndsWithAnAnswer(): void
+    {
+        $this->assertAnswered(ContractFixture::Withheld, true);
+    }
+
     public function testNothingIsSentBeforeAStreamIsRead(): void
     {
         $subject = $this->subject(RetryPolicy::none());
@@ -540,6 +562,30 @@ abstract class ContractTestCase extends TestCase
         }
 
         $this->assertRefused($subject, self::request($subject, ContractFixture::ToolCallBesideResponseFormat));
+    }
+
+    public function testATemperatureIsRefusedWhenTheModelTakesNone(): void
+    {
+        $subject = $this->subject(RetryPolicy::none());
+        if (self::can($subject)->temperature !== Support::None) {
+            self::markTestSkipped('The gateway says this model takes a temperature: there is nothing to refuse.');
+        }
+
+        $plain = self::request($subject, ContractFixture::PlainAnswer);
+        $withTemperature = new Request(
+            $plain->model,
+            $plain->messages,
+            $plain->timeoutSeconds,
+            temperature: 0.0,
+            traceId: $plain->traceId,
+        );
+
+        // Also a temperature of 0.0 is one: the value is refused, never dropped.
+        $this->assertRefused($subject, $withTemperature);
+
+        // The same request without a temperature is answered: the refusal is about the temperature alone.
+        $subject->gives(ContractFixture::PlainAnswer, false);
+        self::assertSame('Hello.', $this->answerOf($subject, $plain)->text);
     }
 
     public function testTheModelListIsRefusedWhenTheModelsCannotBeListed(): void
@@ -718,6 +764,34 @@ abstract class ContractTestCase extends TestCase
             self::assertSame(1, $error->attempts, $failure->value . ' is not tried again');
             self::assertSame(1, $subject->requestsReceived(), $failure->value . ' is not tried again');
             self::assertSame([], $subject->waits(), $failure->value);
+        }
+    }
+
+    public function testAResponseThatForbidsARetryIsNotTriedAgain(): void
+    {
+        $this->skipWithoutAttempts();
+
+        foreach ([false, true] as $asStream) {
+            $subject = $this->subject(new RetryPolicy([1.0], 60.0));
+            $how = $asStream ? 'through stream()' : 'through complete()';
+            $why = $subject->cannotPlay(ContractFailure::RetryForbidden, $asStream);
+            if ($why !== null) {
+                self::markTestSkipped('The fixtures say a response that forbids a retry does not apply: ' . $why);
+            }
+
+            // The response asks for a wait too. The answer after it is scripted and never used.
+            $subject->fails(ContractFailure::RetryForbidden, 7, $asStream);
+            $subject->gives(ContractFixture::PlainAnswer, $asStream);
+            $request = self::request($subject, ContractFixture::PlainAnswer);
+
+            $error = $asStream ? $this->failedIn($this->eventsOf($subject, $request))->error : $this->errorOf($subject, $request);
+
+            self::assertSame(ErrorReason::Unavailable, $error->reason, $how . ': a response that forbids a retry keeps the reason of its status');
+            self::assertSame(503, $error->httpStatus, $how);
+            self::assertSame(1, $error->attempts, $how . ': a response that says it must not be tried again is not tried again');
+            self::assertSame(1, $subject->requestsReceived(), $how . ': no second request');
+            self::assertSame([], $subject->waits(), $how . ': nothing is waited for');
+            self::assertNull($error->retryAfterSeconds, $how . ': an error that must not be tried again tells no wait');
         }
     }
 
@@ -1249,7 +1323,7 @@ abstract class ContractTestCase extends TestCase
 
         $why = $subject->cannotGive($fixture, $asStream);
         if ($why !== null) {
-            self::markTestSkipped('The fixtures say an answer with opaque data does not apply: ' . $why);
+            self::markTestSkipped('The fixtures say ' . $fixture->inWords() . ' does not apply: ' . $why);
         }
     }
 

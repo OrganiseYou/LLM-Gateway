@@ -68,6 +68,22 @@ it('fails a gateway that', function (string $fault, string $test, string $failsW
     BrokenContractCase::SENDS_FOREIGN_OPAQUE . ' (a changed message too)' => [BrokenContractCase::SENDS_FOREIGN_OPAQUE, 'testOpaqueDataIsNotSentWithAMessageThatWasChanged'],
     BrokenGateway::OPAQUE_IN_DETAIL => [BrokenGateway::OPAQUE_IN_DETAIL, 'testOpaqueDataIsInNoErrorAndInNoEventOfTheNextRound'],
     BrokenGateway::OPAQUE_IN_DETAIL . ' (on the adapter)' => [BrokenGateway::OPAQUE_IN_DETAIL, 'testOpaqueDataIsInNoErrorAndInNoEventOfTheNextRound', AssertionFailedError::class, true],
+    // The finish reasons: a refusal and a withheld answer are answers, each with its own finish reason.
+    BrokenGateway::REFUSAL_AS_STOP => [BrokenGateway::REFUSAL_AS_STOP, 'testAnAnswerTheModelDeclinedToGiveIsAnAnswerWithItsOwnFinishReason'],
+    BrokenGateway::REFUSAL_AS_STOP . ' (in a stream)' => [BrokenGateway::REFUSAL_AS_STOP, 'testAStreamOfAnAnswerTheModelDeclinedToGive'],
+    BrokenGateway::REFUSAL_AS_STOP . ' (on the adapter)' => [BrokenGateway::REFUSAL_AS_STOP, 'testAnAnswerTheModelDeclinedToGiveIsAnAnswerWithItsOwnFinishReason', AssertionFailedError::class, true],
+    BrokenGateway::THROWS_WITHHELD => [BrokenGateway::THROWS_WITHHELD, 'testAnAnswerTheProviderWithheldIsAnAnswerWithoutTextNotAnError'],
+    BrokenGateway::THROWS_WITHHELD . ' (in a stream)' => [BrokenGateway::THROWS_WITHHELD, 'testAStreamOfAnAnswerTheProviderWithheldEndsWithAnAnswer'],
+    BrokenGateway::THROWS_WITHHELD . ' (on the adapter)' => [BrokenGateway::THROWS_WITHHELD, 'testAnAnswerTheProviderWithheldIsAnAnswerWithoutTextNotAnError', AssertionFailedError::class, true],
+    BrokenGateway::THROWS_WITHHELD . ' (on the adapter, in a stream)' => [BrokenGateway::THROWS_WITHHELD, 'testAStreamOfAnAnswerTheProviderWithheldEndsWithAnAnswer', AssertionFailedError::class, true],
+    BrokenGateway::WITHHELD_AS_STOP => [BrokenGateway::WITHHELD_AS_STOP, 'testAnAnswerTheProviderWithheldIsAnAnswerWithoutTextNotAnError'],
+    BrokenGateway::WITHHELD_AS_STOP . ' (in a stream)' => [BrokenGateway::WITHHELD_AS_STOP, 'testAStreamOfAnAnswerTheProviderWithheldEndsWithAnAnswer'],
+    BrokenContractCase::REFUSAL_FOR_THE_STREAM_ONLY => [BrokenContractCase::REFUSAL_FOR_THE_STREAM_ONLY, 'testAnAnswerTheModelDeclinedToGiveIsAnAnswerWithItsOwnFinishReason', LogicException::class],
+    BrokenContractCase::PLAIN_ANSWER_DOES_NOT_APPLY => [BrokenContractCase::PLAIN_ANSWER_DOES_NOT_APPLY, 'testAPlainAnswer', LogicException::class],
+    // The retry hook: a response that forbids a retry ends the call, with the reason of its status and no wait.
+    BrokenContractCase::RETRIES_WHAT_FORBIDS_IT => [BrokenContractCase::RETRIES_WHAT_FORBIDS_IT, 'testAResponseThatForbidsARetryIsNotTriedAgain'],
+    BrokenContractCase::RETRIES_WHAT_FORBIDS_IT . ' (seen by the retry rule too)' => [BrokenContractCase::RETRIES_WHAT_FORBIDS_IT, 'testOnlyTheFailuresThatMayBeRetriedAreTriedAgain'],
+    BrokenGateway::WAIT_AFTER_NO_RETRY => [BrokenGateway::WAIT_AFTER_NO_RETRY, 'testAResponseThatForbidsARetryIsNotTriedAgain', AssertionFailedError::class, true],
 ]);
 
 it('fails a gateway that answers a request its capabilities say it cannot do', function (string $test): void {
@@ -80,6 +96,7 @@ it('fails a gateway that answers a request its capabilities say it cannot do', f
     'testAForcedToolCallIsRefusedWhenTheModelCannotBeForced',
     'testAResponseFormatIsRefusedWhenTheModelCannotGiveAStructuredAnswer',
     'testToolsWithAResponseFormatAreRefusedWhenTheModelCannotTakeBoth',
+    'testATemperatureIsRefusedWhenTheModelTakesNone',
 ]);
 
 it('names the failure without repeating the key', function (): void {

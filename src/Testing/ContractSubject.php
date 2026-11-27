@@ -43,8 +43,8 @@ interface ContractSubject
 
     /**
      * Why the provider of this gateway can never give this answer, in the words of whoever wrote its fixtures; null
-     * when it can be given. Only an answer with opaque data may not apply, and then for the whole response and for
-     * the stream alike.
+     * when it can be given. Only an answer for which ContractFixture::mayNotApply() says so may not apply (opaque
+     * data, a refusal, a withheld answer), and then for the whole response and for the stream alike.
      *
      * @throws LogicException when the fixtures say it for one of the two and not for the other, or for another case
      */

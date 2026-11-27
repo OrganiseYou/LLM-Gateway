@@ -270,7 +270,8 @@ abstract readonly class AbstractAdapter implements Gateway
 
     /**
      * Lets a format change the reason the status gave, for a code its documentation names: an unknown model, for
-     * example. Not asked for a redirect. A reason of rate_limited or unavailable is retried, every other is not.
+     * example. Not asked for a redirect. A reason of rate_limited or unavailable is retried unless retryAllowed()
+     * says otherwise, every other is not.
      */
     protected function refineReason(#[SensitiveParameter] HttpResponse $response, ErrorReason $reason): ErrorReason
     {
@@ -299,6 +300,17 @@ abstract readonly class AbstractAdapter implements Gateway
         }
 
         return null;
+    }
+
+    /**
+     * Whether a failed response may be tried again. Asked only for a response whose reason, after refineReason(),
+     * is rate_limited or unavailable: every other failure is never tried again. False, for a response that itself
+     * says "do not retry" (a header or a field the format documents): the call fails at once with that reason, is
+     * not tried again and tells no wait. An exception thrown here counts as true.
+     */
+    protected function retryAllowed(#[SensitiveParameter] HttpResponse $response, ErrorReason $reason): bool
+    {
+        return true;
     }
 
     // ---------------------------------------------------------------------------------------------------------
@@ -637,8 +649,10 @@ abstract readonly class AbstractAdapter implements Gateway
      * The answer of the adapter with what only the base knows.
      *
      * @param list<Secret> $inUse the secrets asked for this attempt alone: a token of the supplier
-     * @throws GatewayException provider_error, when the answer has no text and no tool call and was not cut off at
-     *                          the token limit; rejected, when the schema of the response format cannot be used
+     * @throws GatewayException provider_error, when the answer has no text and no tool call and its finish reason
+     *                          is not one that explains it (cut off at the token limit, refused by the model,
+     *                          withheld by the provider); rejected, when the schema of the response format cannot
+     *                          be used
      */
     private function finished(
         #[SensitiveParameter]
@@ -650,8 +664,14 @@ abstract readonly class AbstractAdapter implements Gateway
         #[SensitiveParameter]
         array $inUse,
     ): Answer {
-        // A model that spent every token before it gave any output is cut off, not broken: that answer is returned.
-        if ($answer->text === '' && $answer->toolCalls === [] && $answer->finishReason !== FinishReason::Length) {
+        // A model that spent every token before it gave any output is cut off, not broken; one that declined, or
+        // whose output the provider withheld, gave no output on purpose. Those answers are returned. Without such
+        // a finish reason an answer that holds nothing is a broken response.
+        $explained = match ($answer->finishReason) {
+            FinishReason::Length, FinishReason::Refusal, FinishReason::ContentFilter => true,
+            FinishReason::Stop, FinishReason::ToolCalls, FinishReason::Other => false,
+        };
+        if ($answer->text === '' && $answer->toolCalls === [] && ! $explained) {
             throw $this->failure(ErrorReason::ProviderError, 'the answer has no text and no tool call');
         }
 
@@ -985,6 +1005,7 @@ abstract readonly class AbstractAdapter implements Gateway
             $request->toolChoice->mode === ToolChoiceMode::Tool && $can->forcedToolCall === Support::None => 'this model cannot be made to call one named tool',
             $hasFormat && $can->structuredOutput === Support::None => 'this model cannot give a structured answer',
             $hasTools && $hasFormat && $can->toolsWithStructuredOutput === Support::None => 'this model cannot take tools and a response format in one request',
+            $request->temperature !== null && $can->temperature === Support::None => 'this model takes no temperature',
             default => null,
         };
         if ($detail !== null) {
@@ -1204,6 +1225,15 @@ abstract readonly class AbstractAdapter implements Gateway
             $code = $this->providerCode($response);
         } catch (Exception) {
             // No code.
+        } catch (Error $thrown) {
+            $broken ??= self::adapterError($thrown);
+            unset($thrown);
+        }
+        try {
+            // A response that itself says "do not retry" keeps its reason, is not tried again and tells no wait.
+            $retryable = $retryable && $this->retryAllowed($response, $reason);
+        } catch (Exception) {
+            // It may be tried again.
         } catch (Error $thrown) {
             $broken ??= self::adapterError($thrown);
             unset($thrown);

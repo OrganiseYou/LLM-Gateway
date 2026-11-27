@@ -285,7 +285,12 @@ All in `OrganiseYou\LlmGateway\Contract`. Meet LR-07, LR-33.
 | `ToolCalls = 'tool_calls'` | The model asks for tool calls. |
 | `Length = 'length'` | Cut off at the token limit. |
 | `ContentFilter = 'content_filter'` | The provider withheld the output. |
+| `Refusal = 'refusal'` | The model declined to answer (G67, LG-30). |
 | `Other = 'other'` | A reason the format gives that fits none of the above. |
+
+A `match` over `FinishReason` has an arm for every case or a default arm. An answer without text and without a tool
+call is returned as an answer when its finish reason is `Length`, `ContentFilter` or `Refusal`; with any other finish
+reason it is `provider_error` (section 7.3). A prompt the provider refused is the error `rejected`, never an answer.
 
 ### 4.2 `Usage` (value)
 
@@ -368,9 +373,11 @@ In `OrganiseYou\LlmGateway\Contract`. Meet LR-10, LR-11, G16.
 | `streaming` | `Support` | `Native`, or `Emulated`: the whole answer as one text event (LR-12). An adapter never reports `None` here. |
 | `modelListing` | `Support` | Does `models()` work? `Native` or `None`. |
 | `contextLength` | `?int` | The context length in tokens when it is known without a request, else null. `ModelInfo::$contextLength` gives it per model when the model list tells it. |
+| `temperature` | `Support` | Does the model take a temperature? `Native`: the temperature of a request is sent. `None`: the model takes none. The last constructor parameter, with the default `Native` (G68, LG-30). |
 
 Validation, each throws: `contextLength` below 1; `toolCalling` is `None` while `forcedToolCall` or
-`parallelToolCalls` is not `None`; `structuredOutput` is `None` while `toolsWithStructuredOutput` is not `None`.
+`parallelToolCalls` is not `None`; `structuredOutput` is `None` while `toolsWithStructuredOutput` is not `None`;
+`streaming` is `None`; `modelListing` or `temperature` is `Emulated`.
 
 What the gateway does with them:
 
@@ -380,6 +387,7 @@ What the gateway does with them:
 | `ToolChoice::tool` | `forcedToolCall` is `None` | `not_supported`, before any request |
 | a response format | `structuredOutput` is `None` | `not_supported`, before any request |
 | tools and a response format | `toolsWithStructuredOutput` is `None` | `not_supported`, before any request |
+| a temperature, also 0.0 | `temperature` is `None` | `not_supported`, before any request; the value is never dropped |
 | anything `Emulated` | | the adapter does it; the caller sees the normal answer |
 
 `parallelToolCalls` is information for the caller; no request is refused on it. A caller never asks which provider it
@@ -485,11 +493,11 @@ unknown model), never invent a ninth reason.
 | What happened | Reason | Retried |
 |---|---|---|
 | Status 401 or 403 | `credentials_rejected` | no |
-| Status 429 | `rate_limited`, with `retryAfterSeconds` when the response tells it | yes |
-| Status 408, or 500 to 599 | `unavailable` | yes |
+| Status 429 | `rate_limited`, with `retryAfterSeconds` when the response tells it. Not when the response forbids a retry (`retryAllowed()` says no, section 8.2 rule 1): then the error tells no wait (G82) | yes, unless the response forbids it |
+| Status 408, or 500 to 599 | `unavailable`; no `retryAfterSeconds` when the response forbids a retry (G82) | yes, unless the response forbids it |
 | Status 300 to 399 | `unavailable` | no (LR-29) |
 | Any other status 400 to 499 | `rejected` | no |
-| Status 200 to 299 with an error in the body, with no text and no tool call, or with a body that cannot be decoded | `provider_error` | no |
+| Status 200 to 299 with an error in the body, with no text and no tool call (unless the finish reason is `Length`, `ContentFilter` or `Refusal`: that is an answer), or with a body that cannot be decoded | `provider_error` | no |
 | `TransportFailure::ConnectionFailed` | `unavailable` | yes |
 | `TransportFailure::TimedOut` | `timeout` | no |
 | `TransportFailure::Redirected` | `unavailable` | no |
@@ -583,7 +591,9 @@ waits (G32).
 
 For `complete`, `models`, each request of `check`, and `stream` until its first event:
 
-1. Only the rows marked "yes" in section 7.3 are retried (LR-34).
+1. Only the rows marked "yes" in section 7.3 are retried (LR-34). A failed response of such a row that itself says
+   "do not retry" is not retried: the adapter says so through `retryAllowed()` (section 13). The call then fails at
+   once with the reason of that row, and its error tells no wait (G71, G82).
 2. When the response tells a wait (the `Retry-After` header as seconds or as a date, or a field the format documents)
    and it is above `maxProviderWaitSeconds`: fail at once with this attempt's error, `retryAfterSeconds` filled.
 3. When it tells a wait within the maximum: wait that long. Otherwise wait `waitsSeconds[n-1]` before retry n.
@@ -1007,6 +1017,7 @@ abstract protected function modelsRequest(float $timeoutSeconds): HttpRequest;
 abstract protected function readModels(HttpResponse $response): array;
 protected function providerCode(HttpResponse $response): ?string;          // default null
 protected function refineReason(HttpResponse $response, ErrorReason $reason): ErrorReason;   // default: unchanged
+protected function retryAllowed(HttpResponse $response, ErrorReason $reason): bool;          // default: true (LG-30)
 ```
 
 Rules the base enforces:
@@ -1026,10 +1037,15 @@ Rules the base enforces:
 yields the fallback events of section 6 rule 4; for `complete` after `willStream`, it returns the answer of the
 `StreamFinished` event. When a scripted text answer meets a request with a response format, it runs
 `StructuredAnswerChecker`, so an application's repair loop is testable. An unscripted call throws `LogicException`.
+The fake returns a scripted answer without text and without a tool call when its finish reason is `Length`,
+`ContentFilter` or `Refusal`, and with capabilities given it refuses a temperature for a model that takes none.
 
 `Testing\ContractTestCase` is the shared set of LR-40. An adapter's test supplies a gateway built on `FakeTransport`
 and its fixtures; the fake supplies itself. The set asserts the rules of sections 4, 6, 7.3, 8.2, 8.3 and 11
-(no marker key in any output).
+(no marker key in any output). Since LG-30 it has the answers `Refused` and `Withheld` (a format may say they do not
+apply), the refusal of a temperature where the capability says none, and the failure `RetryForbidden`: a status 503
+whose response forbids a retry, built by `AdapterFixtures::retryForbidden()`, which a format without such a sign
+answers with `NotApplicable`.
 
 Architecture tests must list `src/Adapter/Shared` next to `src/Contract`, `src/Loop`, `src/Testing` and
 `src/Transport` as folders where no provider name may appear.

@@ -18,6 +18,8 @@ use OrganiseYou\LlmGateway\Contract\Request;
 use OrganiseYou\LlmGateway\Contract\ResponseFormat;
 use OrganiseYou\LlmGateway\Contract\RetryPolicy;
 use OrganiseYou\LlmGateway\Contract\Secret;
+use OrganiseYou\LlmGateway\Contract\Stream\UsageReported;
+use OrganiseYou\LlmGateway\Contract\StructuredIssueKind;
 use OrganiseYou\LlmGateway\Contract\StructuredResult;
 use OrganiseYou\LlmGateway\Contract\Support;
 use OrganiseYou\LlmGateway\Contract\ToolChoice;
@@ -74,6 +76,7 @@ describe('the adapter base', function (): void {
             'readStream' => 'abstract',
             'refineReason' => 'open',
             'retryAfterSeconds' => 'open',
+            'retryAllowed' => 'open',
             'seal' => 'final',
             'setting' => 'final',
             'unseal' => 'final',
@@ -451,7 +454,51 @@ describe('what a model cannot do', function (): void {
             fn() => Talk::request()->withTools([talkTool()])->withResponseFormat(talkFormat()),
             'this model cannot take tools and a response format in one request',
         ],
+        'a temperature for a model that takes none' => [
+            ['temperature' => 'none'],
+            fn() => new Request('model-a', [Message::user('Say hello.')], 30.0, temperature: 0.7, traceId: 'trace-1'),
+            'this model takes no temperature',
+        ],
+        'a temperature of 0.0 for a model that takes none: it is a temperature too' => [
+            ['temperature' => 'none'],
+            fn() => new Request('model-a', [Message::user('Say hello.')], 30.0, temperature: 0.0, traceId: 'trace-1'),
+            'this model takes no temperature',
+        ],
     ]);
+
+    it('says in the capabilities whether the model takes a temperature, without a request', function (): void {
+        $transport = new FakeTransport();
+
+        expect(Talk::gateway($transport)->capabilities('model-a')->temperature)->toBe(Support::Native)
+            ->and(Talk::gateway($transport, options: ['temperature' => 'none'])->capabilities('model-a')->temperature)->toBe(Support::None)
+            ->and($transport->requests())->toBe([]);
+    });
+
+    it('sends the temperature of a request for a model that takes one, and answers a request without one for a model that takes none', function (): void {
+        $transport = (new FakeTransport())->willReturn(Talk::answered())->willReturn(Talk::answered());
+
+        $withOne = Talk::gateway($transport)->complete(new Request('model-a', [Message::user('Say hello.')], 30.0, temperature: 0.7));
+        $withNone = Talk::gateway($transport, options: ['temperature' => 'none'])->complete(Talk::request());
+
+        expect($withOne->text)->toBe('Hello.')
+            ->and($withNone->text)->toBe('Hello.')
+            ->and(json_decode($transport->requests()[0]->body, true))->toMatchArray(['heat' => 0.7])
+            ->and(json_decode($transport->requests()[1]->body, true))->not->toHaveKey('heat');
+    });
+
+    it('is refused for a temperature before it is refused by the adapter, and uses no retry', function (): void {
+        $clock = new FakeClock();
+        $transport = new FakeTransport($clock);
+        $gateway = Talk::gateway($transport, $clock, new RetryPolicy([1.0, 1.0], 60.0), options: ['temperature' => 'none', 'build_fails' => 'exception']);
+
+        $error = Talk::errorOf(fn() => $gateway->complete(new Request('model-a', [Message::user('Say hello.')], 30.0, temperature: 0.2)));
+
+        expect($error->reason)->toBe(ErrorReason::NotSupported)
+            ->and($error->detail)->toBe('this model takes no temperature')
+            ->and($error->retryAfterSeconds)->toBeNull()
+            ->and($clock->sleeps())->toBe([])
+            ->and($transport->requests())->toBe([]);
+    });
 
     it('is not refused when the capability is emulated, and parallel tool calls refuse nothing', function (): void {
         $transport = (new FakeTransport())->willReturn(Talk::answered());
@@ -751,13 +798,72 @@ describe('an answer without text and without a tool call', function (): void {
             ->and(Talk::finishedIn($whole)->answer->finishReason)->toBe(FinishReason::Length);
     });
 
+    it('is returned when the model declined to answer or the provider withheld the output', function (string $end, FinishReason $finishReason): void {
+        $clock = new FakeClock();
+        $transport = (new FakeTransport($clock))
+            ->willReturn(Talk::answered('', ['end' => $end, 'used' => ['in' => 9, 'out' => 0]]))
+            ->willStream(200, [], Talk::event('used', ['in' => 9, 'out' => 0]), Talk::event('end', ['end' => $end]))
+            ->willReturn(Talk::answered('', ['end' => $end]));
+        $gateway = Talk::gateway($transport, $clock, new RetryPolicy([1.0], 5.0));
+
+        $answer = $gateway->complete(Talk::request());
+        $streamed = Talk::events($gateway->stream(Talk::request()));
+        $whole = Talk::events(Talk::gateway($transport, options: ['streams' => false])->stream(Talk::request()));
+
+        expect($answer->text)->toBe('')
+            ->and($answer->toolCalls)->toBe([])
+            ->and($answer->finishReason)->toBe($finishReason)
+            ->and($answer->usage)->toEqual(new Usage(9, 0))
+            ->and($answer->attempts)->toBe(1)
+            ->and($answer->traceId)->toBe('trace-1')
+            ->and($answer->structured)->toBeNull()
+            ->and(fn() => $answer->toMessage())->toThrow(LogicException::class)
+            ->and($streamed)->toHaveCount(2)
+            ->and($streamed[0])->toBeInstanceOf(UsageReported::class)
+            ->and(Talk::finishedIn($streamed)->answer->text)->toBe('')
+            ->and(Talk::finishedIn($streamed)->answer->finishReason)->toBe($finishReason)
+            ->and($whole)->toHaveCount(2)
+            ->and(Talk::finishedIn($whole)->answer->finishReason)->toBe($finishReason)
+            ->and($clock->sleeps())->toBe([])
+            ->and($transport->requests())->toHaveCount(3);
+    })->with([
+        'refused by the model' => ['refused', FinishReason::Refusal],
+        'withheld by the provider' => ['blocked', FinishReason::ContentFilter],
+    ]);
+
+    it('gets a structured result that says it is no JSON when the request has a response format', function (string $end): void {
+        $transport = (new FakeTransport())->willReturn(Talk::answered('', ['end' => $end]));
+
+        $answer = Talk::gateway($transport)->complete(Talk::request()->withResponseFormat(talkFormat()));
+
+        expect($answer->text)->toBe('')
+            ->and($answer->structured?->isUsable())->toBeFalse()
+            ->and($answer->structured?->issues[0]->kind)->toBe(StructuredIssueKind::NotJson);
+    })->with([['refused'], ['blocked']]);
+
+    it('keeps the text of a refusal that has one, with its finish reason', function (): void {
+        $transport = (new FakeTransport())
+            ->willReturn(Talk::answered('I cannot help with that.', ['end' => 'refused']))
+            ->willStream(200, [], Talk::event('say', ['piece' => 'I cannot help with that.']), Talk::event('end', ['end' => 'refused']));
+        $gateway = Talk::gateway($transport);
+
+        $answer = $gateway->complete(Talk::request());
+        $streamed = Talk::finishedIn(Talk::events($gateway->stream(Talk::request())))->answer;
+
+        expect($answer->text)->toBe('I cannot help with that.')
+            ->and($answer->finishReason)->toBe(FinishReason::Refusal)
+            ->and($answer->toMessage()->text())->toBe('I cannot help with that.')
+            ->and($streamed->text)->toBe('I cannot help with that.')
+            ->and($streamed->finishReason)->toBe(FinishReason::Refusal);
+    });
+
     it('stays a provider_error for every other finish reason', function (string $end): void {
         $transport = (new FakeTransport())->willReturn(Talk::answered('', ['end' => $end]))->willStream(200, [], Talk::event('end', ['end' => $end]));
         $gateway = Talk::gateway($transport);
 
         expect(Talk::errorOf(fn() => $gateway->complete(Talk::request()))->reason)->toBe(ErrorReason::ProviderError)
             ->and(Talk::failedIn(Talk::events($gateway->stream(Talk::request())))->error->reason)->toBe(ErrorReason::ProviderError);
-    })->with([['done'], ['calls'], ['blocked'], ['something else']]);
+    })->with([['done'], ['calls'], ['something else']]);
 });
 
 describe('an error an adapter raises while it states the capabilities', function (): void {

@@ -24,6 +24,26 @@ All notable changes to this package are written here. The format follows
   classes for the shared test set: a class that implements `Testing\ContractSubject` must add `cannotGive()`, and a
   class that implements `Testing\AdapterFixtures` must answer for the new case, with a fixture or with
   `NotApplicable` from both `answer()` and `stream()`.
+- `Contract\FinishReason::Refusal`: the model declined to answer. An answer without text and without a tool call is
+  now returned as an answer when its finish reason is `Length`, `ContentFilter` or `Refusal`; before, only `Length`
+  was, and the other two ended as `provider_error`. The adapter base and `Testing\FakeGateway` both follow this.
+- `Contract\Capabilities::$temperature` (`native` or `none`, the last constructor parameter, `native` when left
+  out). A request that gives a temperature to a model that takes none is refused as `not_supported` before anything
+  is sent, by the adapter base and by the fake gateway when it was given capabilities.
+- `AbstractAdapter::retryAllowed()`: an adapter returns `false` for a failed response that itself says "do not
+  retry". The call then fails at once with its reason (`rate_limited` or `unavailable`) and tells no wait.
+- The shared test set gains the answers `ContractFixture::Refused` and `ContractFixture::Withheld`, the failure
+  `ContractFailure::RetryForbidden`, the test that a temperature is refused where the capability says none, and the
+  test that a response which forbids a retry is not tried again.
+
+### Changed
+
+- **Breaking:** a `match` over `Contract\FinishReason` without a default arm must handle the new case `Refusal`.
+- **Breaking, for a host that wrote its own classes for the shared test set:** a class that implements
+  `Testing\AdapterFixtures` must add `retryForbidden()` (answer `NotApplicable` when the format has no such sign)
+  and must answer for the cases `Refused` and `Withheld`, with a fixture or with `NotApplicable` from both
+  `answer()` and `stream()`. A `match` over `Testing\ContractFixture` or `Testing\ContractFailure` without a default
+  arm must handle the new cases.
 
 ### Security
 

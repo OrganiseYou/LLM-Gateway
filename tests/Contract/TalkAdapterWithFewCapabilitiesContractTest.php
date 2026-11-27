@@ -13,13 +13,13 @@ use OrganiseYou\LlmGateway\Tests\Support\Talk;
 use OrganiseYou\LlmGateway\Tests\Support\TalkFixtures;
 
 /**
- * The same outside adapter for a server without tools, without structured answers, without streaming and without
- * a model list: what it cannot do is refused, and the scenarios for it are skipped with that reason.
+ * The same outside adapter for a server without tools, without structured answers, without streaming, without a
+ * model list and whose model takes no temperature: what it cannot do is refused, and the scenarios for it are skipped with that reason.
  */
 final class TalkAdapterWithFewCapabilitiesContractTest extends ContractTestCase
 {
     protected function subject(RetryPolicy $retry): ContractSubject
     {
-        return new AdapterSubject(Talk::preset(['tools' => 'none', 'structured' => 'none', 'streams' => false, 'lists_models' => false]), new BearerKey(self::MARKER_KEY), new TalkFixtures(), 'model-a', $retry);
+        return new AdapterSubject(Talk::preset(['tools' => 'none', 'structured' => 'none', 'streams' => false, 'lists_models' => false, 'temperature' => 'none']), new BearerKey(self::MARKER_KEY), new TalkFixtures(), 'model-a', $retry);
     }
 }

@@ -131,7 +131,15 @@ echo $answer->latencyMs;            // prints 0
 ```
 
 A token count is `null` when the provider did not report it. The finish reason is one of `stop`, `tool_calls`,
-`length` (cut off at the token limit), `content_filter` and `other`.
+`length` (cut off at the token limit), `content_filter` (the provider withheld the output), `refusal` (the model
+declined to answer) and `other`. A later version may add one: give a `match` over `FinishReason` a default arm.
+
+An answer can come without text and without a tool call. That happens with three finish reasons only: `length` (the
+model spent every token before it wrote anything), `content_filter` and `refusal`. It is an answer, not an error:
+look at the finish reason before you use the text. `Answer::toMessage()` throws a `LogicException` for such an
+answer: there is nothing to send back, so check the finish reason before you build the next round. A refusal that has
+words keeps them as its text. A prompt the
+provider refused to take is something else: an error with the reason `rejected`.
 
 ### The same answer as a stream
 
@@ -222,6 +230,12 @@ $request = new Request(
 
 // Round 1: the model asks for a tool call.
 $answer = $gateway->complete($request);
+
+// No tool call: there is no next round. An answer without text and without a tool call cannot even become a
+// message (toMessage() throws), so look at the finish reason here instead.
+if ($answer->toolCalls === []) {
+    throw new \RuntimeException('The model asked for no tool call and ended with: ' . $answer->finishReason->value);
+}
 
 $messages = [...$request->messages, $answer->toMessage()];
 foreach ($answer->toolCalls as $call) {
@@ -445,6 +459,10 @@ Each capability is `native`, `emulated` or `none`:
 | `streaming` | `native`, or `emulated`: the whole answer arrives at once, as the same events. Never `none`. |
 | `modelListing` | Can the models be listed? `native` or `none`. |
 | `contextLength` | In tokens, when it is known without a request; else `null`. |
+| `temperature` | Does the model take a temperature? `native` or `none`. The last argument of `Capabilities`; left out, it is `native`. |
+
+A request that gives a temperature to a model that takes none is refused as `not_supported` before anything is sent.
+The library never drops the value for you: ask the capability first, and leave the temperature out.
 
 `emulated` means the library does the work for you and the result has the same shape. You do not have to treat it
 differently.
@@ -704,6 +722,7 @@ base does everything that is the same for every format.
 | `providerCode($response)` | Optional. The provider's own code in a failed response. |
 | `refineReason($response, $reason)` | Optional. Changes the reason the status gave, for a code the documentation names. |
 | `retryAfterSeconds($response)` | Optional. A wait the format tells outside the `Retry-After` header. |
+| `retryAllowed($response, $reason)` | Optional. Returns `false` for a failed response that itself says "do not retry". The call then fails at once with its reason. Asked only for `rate_limited` and `unavailable`. |
 
 **The helpers you use:** `$this->url($path, $query)` builds an address; `$this->answer(...)` builds an answer;
 `$this->failure($reason, $detail, $providerCode)` builds an error to throw; `$this->setting($key)` reads a setting of
@@ -1022,6 +1041,7 @@ final readonly class ExampleAdapter extends AbstractAdapter
             'calls' => FinishReason::ToolCalls,
             'cut' => FinishReason::Length,
             'blocked' => FinishReason::ContentFilter,
+            'refused' => FinishReason::Refusal,
             default => FinishReason::Other,
         };
     }
@@ -1097,8 +1117,9 @@ echo $transport->requests()[0]->url;   // prints https://llm.example.test/api/ta
 ```
 
 **Prove it with the shared test set.** `Testing\ContractTestCase` holds what every gateway must do: a plain answer, a
-tool call, a garbled tool call, a structured answer that matches and one that does not, a stream, every error
-reason, retries and waits, the timeout, data that must go back unchanged, and no key in any output. An adapter passes
+tool call, a garbled tool call, a structured answer that matches and one that does not, a refusal and a withheld
+answer, a stream, every error reason, retries and waits, the timeout, data that must go back unchanged, and no key in
+any output. An adapter passes
 it or it is not an adapter.
 
 It is a PHPUnit test case, written for PHPUnit 12. The library does not require PHPUnit, so add it to your own
@@ -1165,6 +1186,11 @@ final readonly class ExampleFixtures implements AdapterFixtures
         return [str_replace('{{echo}}', $echo, $this->read('error_in_stream.sse'))];
     }
 
+    public function retryForbidden(HttpResponse $failed): HttpResponse|NotApplicable
+    {
+        return new NotApplicable('no response of this format says that a request must not be tried again');
+    }
+
     public function requestTheFormatCannotCarry(Request $request): Request|NotApplicable
     {
         // This format writes the raw arguments of an earlier tool call as JSON, and these are not valid UTF-8.
@@ -1188,6 +1214,8 @@ final readonly class ExampleFixtures implements AdapterFixtures
             ContractFixture::StructuredInvalid => 'structured_invalid',
             ContractFixture::CutOff => 'cut_off',
             ContractFixture::EmptyAnswer => 'empty_answer',
+            ContractFixture::Refused => 'refused',
+            ContractFixture::Withheld => 'withheld',
         };
     }
 
@@ -1203,7 +1231,7 @@ final readonly class ExampleFixtures implements AdapterFixtures
 }
 ```
 
-The files this class reads: for each of the eight names above one `.json` (the whole response) and one `.sse` (the
+The files this class reads: for each of the ten names above one `.json` (the whole response) and one `.sse` (the
 same answer as a stream), and `failed.json`, `error_in_body.json` and `error_in_stream.sse`. What each must hold is
 written on the cases of `Testing\ContractFixture`. Three things are easy to miss:
 
@@ -1248,13 +1276,14 @@ sent, and no test takes real time.
 **Expect skipped tests.** A skip is the test set saying what it did not check, each with its reason. It is not a
 fault.
 
-- A gateway that can do everything and streams natively skips six: the five tests of a refusal (tools, a forced tool
-  call, a response format, tools with a response format, the model list), because there is nothing to refuse, and
-  the test of a gateway without streaming.
+- A gateway that can do everything and streams natively skips seven: the six tests of a refusal (tools, a forced
+  tool call, a response format, tools with a response format, a temperature, the model list), because there is
+  nothing to refuse, and the test of a gateway without streaming.
 - Fixtures can answer `NotApplicable` for an error inside a successful response, for a request the format cannot
-  carry and for an answer with opaque data. That scenario is then skipped with the reason they give. The example
-  above has a fixture for the first two, and its format has no opaque data: it skips those six and the five tests
-  of an answer with opaque data.
+  carry, for a response that forbids a retry, for an answer with opaque data, for a refusal and for a withheld
+  answer. That scenario is then skipped with the reason they give. The example above has a fixture for the first
+  two, for a refusal and for a withheld answer. Its format has no opaque data and no way to forbid a retry: it skips
+  those seven, the five tests of an answer with opaque data and the one test of a response that forbids a retry.
 - A gateway that lacks a capability skips the scenarios that need it. Its refusal test runs in their place.
 - One more test is skipped when PHP leaves the arguments out of traces (`zend.exception_ignore_args`, which
   `php.ini-production` switches on). Set it to 0 for the tests, with
@@ -1340,7 +1369,8 @@ The fake keeps the rules of a real gateway, so a test sees what production will 
   real gateway checks it. An answer with tool calls gets none.
 - The fake never makes an opaque part. One you script with `willAnswer()` reaches your code in `Answer::$opaque` and
   in `toMessage()`, and `requests()` shows the parts your code sent in the next round.
-- An answer without text and without a tool call is a `provider_error`, unless it was cut off at the token limit.
+- An answer without text and without a tool call is returned when its finish reason is `length`, `refusal` or
+  `content_filter`, as a real gateway returns it. With any other finish reason it is a `provider_error`.
 - `willStream()` refuses, where you script it, a stream that breaks a rule: a text that is not the text of its
   deltas, a tool call that starts and never completes, usage reported twice.
 - The request of a stream is recorded when the stream is read, not when `stream()` is called.

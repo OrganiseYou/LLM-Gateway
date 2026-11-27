@@ -110,8 +110,8 @@ final readonly class AdapterSubject implements ContractSubject
         if (! $whole instanceof NotApplicable) {
             return null;
         }
-        if ($fixture !== ContractFixture::ToolCallWithOpaqueData) {
-            throw new WrongUse('Only an answer with opaque data may not apply to a format: the fixture for "' . $fixture->value . '" must exist or be null.');
+        if (! $fixture->mayNotApply()) {
+            throw new WrongUse('Only an answer with opaque data, a refusal and a withheld answer may not apply to a format: the fixture for "' . $fixture->value . '" must exist or be null.');
         }
 
         return $whole->reason;
@@ -163,6 +163,15 @@ final readonly class AdapterSubject implements ContractSubject
             if ($response->status !== $status) {
                 throw new WrongUse('The fixture for a failed request must have the status it was asked for: ' . $status . '.');
             }
+            if ($failure === ContractFailure::RetryForbidden) {
+                $response = $this->fixtures->retryForbidden($response);
+                if ($response instanceof NotApplicable) {
+                    throw new WrongUse('The fixtures say a response that forbids a retry does not apply: ask cannotPlay() first.');
+                }
+                if ($response->status !== $status) {
+                    throw new WrongUse('The fixture for a response that forbids a retry must keep the status of the failed response: ' . $status . '.');
+                }
+            }
         }
         self::assertRepeats($response->body, $echo);
         $status = $response->status;
@@ -187,6 +196,11 @@ final readonly class AdapterSubject implements ContractSubject
 
     public function cannotPlay(ContractFailure $failure, bool $asStream): ?string
     {
+        if ($failure === ContractFailure::RetryForbidden) {
+            $fixture = $this->fixtures->retryForbidden($this->fixtures->failed((int) $failure->httpStatus(), 'words'));
+
+            return $fixture instanceof NotApplicable ? $fixture->reason : null;
+        }
         if ($failure !== ContractFailure::ErrorInBody) {
             return null;
         }

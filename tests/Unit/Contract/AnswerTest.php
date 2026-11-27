@@ -35,9 +35,15 @@ function makeAnswer(array $overrides = []): Answer
 }
 
 describe('FinishReason', function (): void {
-    it('has the five neutral values', function (): void {
+    it('has the six neutral values', function (): void {
         expect(array_map(fn(FinishReason $reason): string => $reason->value, FinishReason::cases()))
-            ->toBe(['stop', 'tool_calls', 'length', 'content_filter', 'other']);
+            ->toBe(['stop', 'tool_calls', 'length', 'content_filter', 'refusal', 'other']);
+    });
+
+    it('tells a refusal of the model apart from output the provider withheld', function (): void {
+        expect(FinishReason::Refusal->value)->toBe('refusal')
+            ->and(FinishReason::from('refusal'))->toBe(FinishReason::Refusal)
+            ->and(FinishReason::Refusal)->not->toBe(FinishReason::ContentFilter);
     });
 });
 

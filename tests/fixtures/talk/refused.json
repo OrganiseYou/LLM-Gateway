@@ -1,0 +1,9 @@
+{
+    "say": "I cannot help with that.",
+    "end": "refused",
+    "by": "model-a-0001",
+    "used": {
+        "in": 3,
+        "out": 2
+    }
+}

@@ -113,7 +113,10 @@ final class FakeGatewaySubject implements ContractSubject
 
     public function cannotPlay(ContractFailure $failure, bool $asStream): ?string
     {
-        return null;
+        // The fake reads no response: a failure is scripted with its reason, and nothing is ever tried again.
+        return $failure === ContractFailure::RetryForbidden
+            ? 'the fake gateway reads no response, so no response can tell it not to try again'
+            : null;
     }
 
     public function requestItCannotCarry(Request $request): NotApplicable
