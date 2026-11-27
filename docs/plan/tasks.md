@@ -143,7 +143,7 @@ The four contract tasks LG-29 to LG-32 come first: the adapter map (`docs/design
 the adapters cannot be built on the contract of S1 as it is. Section numbers below are those of that document.
 
 ### LG-29 · Contract: the opaque part
-- Status: todo · Needs: LG-09, LG-11
+- Status: doing · Needs: LG-09, LG-11
 - Note: G66. Five providers return data with an answer that must go back unchanged in a tool loop; decision G59
   (open) needs the same part if a Responses adapter is built.
 - Scope: section 5.1. `Contract\OpaquePart` (one field `data`); `Message` accepts it in an assistant message, at most
@@ -253,7 +253,8 @@ the adapters cannot be built on the contract of S1 as it is. Section numbers bel
   and LG-21 (the preset). Its criterion "a wrong API version comes back as `rejected`" is gone: no version is sent.
 
 ### LG-34 · The Responses adapter
-- Status: blocked · Needs: LG-29, LG-30, LG-31, LG-32 · Blocked by decision G59
+- Status: todo · Needs: LG-29, LG-30, LG-31, LG-32
+- Note: G59 is decided (2026-11-27): the Responses adapter is built. The entries `openai`, `openai-eu`, `azure-openai` and `grok` use it.
 - Note: Starts only when G59 is decided as (a) or (c); dropped when it is decided as (b). See section 3.
 - Scope: first read the provider's pages on the Responses format for OpenAI Platform, Azure OpenAI and Grok and add
   what is found to their files under `docs/providers/` (the stream events, the item shapes and the error body were
@@ -276,6 +277,7 @@ weight is compared with the provider's page first.
 
 ### LG-18 · Presets: Grok, Kimi, STACKIT
 - Status: todo · Needs: LG-12
+- Note: G59 is decided as (a): the `grok` entry is built on the Responses adapter, so it also needs LG-34. Kimi and STACKIT stay on the chat-completions adapter.
 - Note: The OpenAI Platform preset moved to LG-33, which waits for decision G59; this task does not wait.
 - Note: G59 (open) may later change the adapter of `grok`; it is built on the chat-completions adapter now.
 - Scope: the entries `grok`, `kimi`, `kimi-cn` and `stackit` (section 9, rows 16 to 19). Kimi is two entries: two
@@ -292,6 +294,7 @@ weight is compared with the provider's page first.
 
 ### LG-20 · Presets: Silo AI, Pleias, Kyutai
 - Status: todo · Needs: LG-12
+- Note: G62 is decided (2026-11-27): Kyutai is dropped. Build `silo-ai` and `pleias` only; no `kyutai` entry.
 - Scope: the entries `silo-ai`, `pleias` and `kyutai` (section 9, rows 10, 12, 15; section 7). Without a hosted chat
   API: G9. Each description says in one plain sentence what the customer needs to have running. `silo-ai` and
   `pleias` name the provider's chat models as suggestions; `kyutai` suggests no model (G62).
@@ -301,6 +304,7 @@ weight is compared with the provider's page first.
 
 ### LG-21 · Presets: Claude, Gemini and Vertex AI, Cohere, Mistral, Microsoft Copilot / Azure OpenAI
 - Status: todo · Needs: LG-13, LG-14, LG-15, LG-16
+- Note: G59 is decided as (a): the `azure-openai` entry is built on the Responses adapter, so it also needs LG-34. G62: the catalogue has no `kyutai` entry; its count is twenty.
 - Note: G60, G75: add the catalogue `Preset\Presets` (`all()`, `find()`, `ids()`; section 8) with a test that every entry of section 9 that is built is in it, in that order, and every id is unique.
 - Note: G65: LG-17 is dropped; `azure-openai` is an entry on the chat-completions adapter. G59 (open) may later change its adapter.
 - Note: Before the six model overrides of `claude` are written, record the ids of the six models in `docs/providers/anthropic.md` from the provider's page; the file holds their display names and one id form only (section 5.4).
@@ -310,7 +314,8 @@ weight is compared with the provider's page first.
   URL from the customer; `azure-openai` builds with each of its three credential kinds.
 
 ### LG-33 · Presets: OpenAI Platform
-- Status: blocked · Needs: LG-12 · Blocked by decision G59
+- Status: todo · Needs: LG-34
+- Note: G59 is decided as (a): these entries are built on the Responses adapter of LG-34.
 - Note: Split from LG-18 so that no other preset waits. When G59 is (a) or (c) it also needs LG-34.
 - Scope: the entries `openai` and `openai-eu` (section 9, rows 1 and 2), on the adapter G59 names. When G59 is (b):
   first record in `docs/providers/openai.md` the ids of the models on which tool calling is absent, then write them
