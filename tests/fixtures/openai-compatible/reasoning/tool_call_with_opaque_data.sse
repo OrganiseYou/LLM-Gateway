@@ -1,0 +1,16 @@
+data: {"id":"chatcmpl-example-0001","object":"chat.completion.chunk","created":1795000000,"model":"example-reasoner-3","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}],"usage":null}
+
+data: {"id":"chatcmpl-example-0001","object":"chat.completion.chunk","created":1795000000,"model":"example-reasoner-3","choices":[{"index":0,"delta":{"reasoning_content":"The user asks about one city, "},"finish_reason":null}],"usage":null}
+
+data: {"id":"chatcmpl-example-0001","object":"chat.completion.chunk","created":1795000000,"model":"example-reasoner-3","choices":[{"index":0,"delta":{"reasoning_content":"so the lookup tool is the way: opaque-tracer."},"finish_reason":null}],"usage":null}
+
+data: {"id":"chatcmpl-example-0001","object":"chat.completion.chunk","created":1795000000,"model":"example-reasoner-3","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_example_1","type":"function","function":{"name":"lookup","arguments":"{\"city\":"}}]},"finish_reason":null}],"usage":null}
+
+data: {"id":"chatcmpl-example-0001","object":"chat.completion.chunk","created":1795000000,"model":"example-reasoner-3","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"Paris\"}"}}]},"finish_reason":null}],"usage":null}
+
+data: {"id":"chatcmpl-example-0001","object":"chat.completion.chunk","created":1795000000,"model":"example-reasoner-3","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls","usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5,"cached_tokens":0,"prompt_tokens_details":{"cached_tokens":0,"cache_write_tokens":0}}}],"usage":null}
+
+data: {"id":"chatcmpl-example-0001","object":"chat.completion.chunk","created":1795000000,"model":"example-reasoner-3","choices":[],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5,"cached_tokens":0,"prompt_tokens_details":{"cached_tokens":0,"cache_write_tokens":0}}}
+
+data: [DONE]
+

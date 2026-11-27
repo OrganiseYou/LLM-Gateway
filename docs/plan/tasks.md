@@ -189,7 +189,7 @@ the adapters cannot be built on the contract of S1 as it is. Section numbers bel
   `default` and `examples` (not touched), with a recursive schema and with numeric property names (G33).
 
 ### LG-12 · The chat-completions adapter
-- Status: todo · Needs: LG-29, LG-30, LG-31, LG-32
+- Status: done · Needs: LG-29, LG-30, LG-31, LG-32
 - Note: From LG-32: the provider's file names limits the row of 5.9 omits (root may not be an `anyOf`, total length of names and enum values, number of enum values); check them with the value method of `SchemaShape` (G89) before sending `strict`.
 - Note: From LG-31: the adapter needs a test with a header setting filled in, to show none of its own headers clashes.
 - Note: From LG-30: the shared set tests the retry sign only on a 503 and a refusal only with text; the adapter needs its own unit tests for a 429 that forbids a retry and for a refusal without text.
@@ -212,6 +212,7 @@ the adapters cannot be built on the contract of S1 as it is. Section numbers bel
 
 ### LG-13 · The Mistral dialect on the chat-completions adapter
 - Status: todo · Needs: LG-12
+- Note: From LG-12: copy its structure (Dialect, Reading, ErrorBody, fixtures builder, the test files under tests/Unit/Adapter/OpenAiCompatible); the base now keeps an echoed credential out of the model name, the model list and tool calls; a finish word for tool calls without a call is `Other`; an allow-list decides when a strict schema mode is sent.
 - Note: From LG-29: an empty JSON object sealed as an array comes back as `[]`; an adapter that must send provider data back unchanged seals the provider's raw JSON text as one string, not the decoded arrays.
 - Note: G64: not an adapter of its own. The id is kept; the scope changed.
 - Scope: `reasoning_carrier: content_entries` (sections 2.2 and 5.1): answer content as a list with entries that are
@@ -222,6 +223,7 @@ the adapters cannot be built on the contract of S1 as it is. Section numbers bel
 
 ### LG-14 · The Messages adapter
 - Status: todo · Needs: LG-29, LG-30, LG-31, LG-32
+- Note: From LG-12: copy its structure (Dialect, Reading, ErrorBody, fixtures builder, the test files under tests/Unit/Adapter/OpenAiCompatible); the base now keeps an echoed credential out of the model name, the model list and tool calls; a finish word for tool calls without a call is `Other`; an allow-list decides when a strict schema mode is sent.
 - Note: From LG-32: take `not` out in the same call as the constraint keywords, write `oneOf` as `anyOf` before sending, use the emulated route when `SchemaShape` says the reduced schema may be tighter (G89), and run `isRecursive()` and `everyObjectIsClosed()` on the copy that is sent.
 - Note: From LG-31: the adapter needs a test with a header setting filled in, to show none of its own headers clashes.
 - Note: From LG-30: the shared set tests the retry sign only on a 503 and a refusal only with text; the adapter needs its own unit tests for a 429 that forbids a retry and for a refusal without text.
@@ -238,6 +240,7 @@ the adapters cannot be built on the contract of S1 as it is. Section numbers bel
 
 ### LG-15 · The generate-content adapter
 - Status: todo · Needs: LG-29, LG-30, LG-31, LG-32
+- Note: From LG-12: copy its structure (Dialect, Reading, ErrorBody, fixtures builder, the test files under tests/Unit/Adapter/OpenAiCompatible); the base now keeps an echoed credential out of the model name, the model list and tool calls; a finish word for tool calls without a call is `Other`; an allow-list decides when a strict schema mode is sent.
 - Note: From LG-31: the adapter needs a test with a header setting filled in, to show none of its own headers clashes.
 - Note: From LG-30: the shared set tests the retry sign only on a 503 and a refusal only with text; the adapter needs its own unit tests for a 429 that forbids a retry and for a refusal without text.
 - Note: From LG-29: an empty JSON object sealed as an array comes back as `[]`; an adapter that must send provider data back unchanged seals the provider's raw JSON text as one string, not the decoded arrays.
@@ -252,6 +255,7 @@ the adapters cannot be built on the contract of S1 as it is. Section numbers bel
 
 ### LG-16 · The Chat v2 adapter
 - Status: todo · Needs: LG-29, LG-30, LG-31, LG-32
+- Note: From LG-12: copy its structure (Dialect, Reading, ErrorBody, fixtures builder, the test files under tests/Unit/Adapter/OpenAiCompatible); the base now keeps an echoed credential out of the model name, the model list and tool calls; a finish word for tool calls without a call is `Other`; an allow-list decides when a strict schema mode is sent.
 - Note: From LG-32: take `not` out in the same call as the constraint keywords, write `oneOf` as `anyOf` before sending, use the emulated route when `SchemaShape` says the reduced schema may be tighter (G89), and run `isRecursive()` and `everyObjectIsClosed()` on the copy that is sent.
 - Note: From LG-31: the adapter needs a test with a header setting filled in, to show none of its own headers clashes.
 - Note: From LG-30: the shared set tests the retry sign only on a 503 and a refusal only with text; the adapter needs its own unit tests for a 429 that forbids a retry and for a refusal without text.
@@ -270,6 +274,7 @@ the adapters cannot be built on the contract of S1 as it is. Section numbers bel
 
 ### LG-34 · The Responses adapter
 - Status: todo · Needs: LG-29, LG-30, LG-31, LG-32
+- Note: From LG-12: copy its structure (Dialect, Reading, ErrorBody, fixtures builder, the test files under tests/Unit/Adapter/OpenAiCompatible); the base now keeps an echoed credential out of the model name, the model list and tool calls; a finish word for tool calls without a call is `Other`; an allow-list decides when a strict schema mode is sent.
 - Note: From LG-32: the provider's file names limits the row of 5.9 omits (root may not be an `anyOf`, total length of names and enum values, number of enum values); check them with the value method of `SchemaShape` (G89) before sending `strict`.
 - Note: From LG-31: the adapter needs a test with a header setting filled in, to show none of its own headers clashes.
 - Note: From LG-30: the shared set tests the retry sign only on a 503 and a refusal only with text; the adapter needs its own unit tests for a 429 that forbids a retry and for a refusal without text.
@@ -297,6 +302,7 @@ weight is compared with the provider's page first.
 
 ### LG-18 · Presets: Grok, Kimi, STACKIT
 - Status: todo · Needs: LG-12
+- Note: From LG-12: a stream that ends without `[DONE]` is accepted as complete (design 2.1); `kimi.md` calls it incomplete. This task decides whether `kimi` needs an option for it.
 - Note: From LG-31: no field of an entry names a header that carries a credential at that provider (the neutral reserved list cannot know provider header names).
 - Note: G59 is decided as (a): the `grok` entry is built on the Responses adapter, so it also needs LG-34. Kimi and STACKIT stay on the chat-completions adapter.
 - Note: The OpenAI Platform preset moved to LG-33, which waits for decision G59; this task does not wait.
@@ -316,6 +322,7 @@ weight is compared with the provider's page first.
 
 ### LG-20 · Presets: Silo AI, Pleias, Kyutai
 - Status: todo · Needs: LG-12
+- Note: From LG-12: `inline_reasoning: strip` cuts only a block that opens with `<think>`; `pleias.md` says the template opens the block, so the text may start inside it. This task decides, from the provider's file, whether to also cut up to the first `</think>`.
 - Note: From LG-31: no field of an entry names a header that carries a credential at that provider (the neutral reserved list cannot know provider header names).
 - Note: G62 is decided (2026-11-27): Kyutai is dropped. Build `silo-ai` and `pleias` only; no `kyutai` entry.
 - Scope: the entries `silo-ai`, `pleias` and `kyutai` (section 9, rows 10, 12, 15; section 7). Without a hosted chat

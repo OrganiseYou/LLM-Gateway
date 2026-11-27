@@ -18,20 +18,24 @@ What works today:
 - the adapter base `Adapter\Shared\AbstractAdapter`, which you extend to add a format of your own;
 - the check of a structured answer against its JSON Schema;
 - `Testing\FakeGateway`, a gateway for your tests;
-- `Testing\ContractTestCase`, the shared test set every adapter must pass.
+- `Testing\ContractTestCase`, the shared test set every adapter must pass;
+- the first shipped adapter, `Adapter\OpenAiCompatible\ChatCompletionsAdapter`, for the chat-completions format that
+  many servers speak, with its model list. See [The shipped adapters](#the-shipped-adapters).
 
 What is coming, and is **not built yet**:
 
-- the shipped adapters (one per API format) and the shipped presets (one per provider; the list is in
+- the other shipped adapters (one per API format) and the shipped presets (one per provider; the list is in
   [docs/requirements.md](docs/requirements.md), LR-18 and LR-21);
 - the preset catalogue `Preset\Presets`, to list the providers the library knows;
 - per preset, what a customer needs from their provider to connect;
 - the tool loop (`src/Loop`): today you write the loop yourself, as shown under [Tools](#tools);
 - the connection check: `Gateway::check()` exists, but a gateway built on the adapter base answers `not_supported`
   for now;
-- model lists per shipped adapter: `Gateway::models()` exists and works for an adapter you write yourself.
+- model lists for the other shipped adapters: `Gateway::models()` works for the chat-completions adapter and for an
+  adapter you write yourself.
 
-So today you can use the library in two ways: with the fake gateway, and with an adapter you write yourself. Every
+So today you can use the library in three ways: with the fake gateway, with the chat-completions adapter and a preset
+you make yourself, and with an adapter you write yourself. Every
 code sample below says which kind it is. "Runs today" uses only what is in `src/` now. "Not built yet" shows the
 intended shape in a few lines; it may still change.
 
@@ -604,8 +608,8 @@ $chosen = Presets::find('the-id-the-customer-chose');
 A preset you made yourself is not in that catalogue. Keep your own next to it in your own list.
 
 **Step 2: ask the chosen provider for its models.** `Gateway::models()` exists. It needs that customer's credentials
-and it sends a request, so it takes a timeout and can fail like any call. The shipped adapters will fill it in later;
-the fake shows the shape. Runs today.
+and it sends a request, so it takes a timeout and can fail like any call. The chat-completions adapter reads it; the
+other shipped adapters will follow. The fake shows the shape. Runs today.
 
 <!-- example: runs -->
 ```php
@@ -647,9 +651,10 @@ For a model it does not know, `capabilities()` answers with the defaults of its 
 
 Build your own `Preset` object in your own code. A preset is data: no class to write.
 
-**Not built yet:** a preset must name an adapter class, and the shipped adapters do not exist yet. In the sample
-`KnownFormatAdapter` is a placeholder for the shipped adapter of that format. Today this works only with an adapter
-you write yourself, as in case (c). The names of the adapter options are the adapter's own, so they may change too.
+A preset must name an adapter class. One shipped adapter exists today, for the chat-completions format; the others
+are not built yet (see [The shipped adapters](#the-shipped-adapters)). In the sample `KnownFormatAdapter` is a
+placeholder for the shipped adapter of your format: write the class of that adapter in its place, or an adapter you
+wrote yourself, as in case (c).
 
 <!-- example: coming, placeholder: KnownFormatAdapter -->
 ```php
@@ -666,7 +671,7 @@ $preset = new Preset(
     label: 'Example Cloud',
     // What the customer needs, in one plain sentence.
     description: 'You need an API key and the region of your Example Cloud account.',
-    // The adapter that speaks the format. Placeholder: the shipped adapters are not built yet.
+    // The adapter that speaks the format. Placeholder: put the class of a shipped adapter here, or your own.
     adapter: KnownFormatAdapter::class,
     // Who gives the address: Fixed (only this one), CustomerMay (may replace it) or CustomerMust (no default).
     baseUrlRule: BaseUrlRule::Fixed,
@@ -743,6 +748,84 @@ of the preset. `$preset->optionsFor('example-small-2')` gives the options as the
 **Changing an option later.** `$preset->withAdapterOptions(['streaming' => 'native'])` gives a copy of the preset
 with these options laid over its own. Use it when you learned more about a server than its preset says. The model
 overrides stay as they are, and still win for the models they fit.
+
+#### The shipped adapters
+
+One adapter per API format. A provider that speaks a format the library knows is a preset on that adapter, not a
+class of its own.
+
+| Format | Adapter class | Status |
+|---|---|---|
+| Chat completions (`POST {base}/chat/completions`, the format many servers call "OpenAI-compatible") | `Adapter\OpenAiCompatible\ChatCompletionsAdapter` | built |
+| Messages | `Adapter\Anthropic\MessagesAdapter` | not built yet |
+| Generate-content | `Adapter\Gemini\GenerateContentAdapter` | not built yet |
+| Chat v2 | `Adapter\Cohere\ChatV2Adapter` | not built yet |
+| Responses | `Adapter\OpenAiResponses\ResponsesAdapter` | not built yet |
+
+**The chat-completions adapter.** It sends a request to `{base URL}/chat/completions` and reads the model list at
+`{base URL}/models`. The base URL is used exactly as the preset or the customer gives it, with or without `/v1` in
+it. What it sends is a closed list of fields: `model`, `messages`, `tools`, `tool_choice`, `response_format`, the
+maximum of output tokens, `temperature`, `stream`, `stream_options` and `store`. It never sends a field that only one
+provider has, and it leaves `tools` out when the request has no tools. A tool name must be letters, digits,
+underscores and hyphens, at most 64 characters; another name is refused as `rejected` before anything is sent.
+
+Its defaults, for a preset that sets no option: every capability is native, except tools together with a response
+format, which is emulated (the tools are sent and the schema goes into the system text).
+
+Servers of this format differ in small ways. Where the difference is data, the preset says so with one of the
+options below, in `adapterOptions` or, for named models, in a `ModelOverride`. An option you leave out has its
+default, the first value. A value outside the list fails as `not_configured` when the gateway is asked for
+capabilities or for a call, and nothing is sent. So does an option whose name the adapter does not know: a preset on
+this adapter holds only the options below and the capability options, so a name written wrongly is found. The word
+`false` may be written as the string or as the boolean.
+
+| Option | Values (default first) | What it changes |
+|---|---|---|
+| `max_tokens_field` | `max_completion_tokens`, `max_tokens` | the name of the field for the maximum of output tokens |
+| `system_role` | `system`, `developer` | the role a system message is sent with |
+| `system_messages` | `separate`, `joined` | one message per system message, or one message with the texts joined by a blank line |
+| `assistant_content_without_text` | `null`, `empty_string` | the `content` of an assistant message that holds only tool calls |
+| `required_word` | `required`, `any` | the word of `tool_choice` for "must call some tool" |
+| `named_tool_choice` | `object`, `required_single`, `unsupported` | how one named tool is forced: the named-function object; the word above with only that tool in `tools`; or not at all. The capability "forced tool call" follows it: native, emulated, none |
+| `tool_strict` | `omit`, `false` | whether `strict: false` is written on every tool |
+| `tool_result_name` | `false`, `true` (booleans) | whether a tool message also carries the name of its tool |
+| `json_schema_strict` | `omit`, `false`, `when_fits` | the `strict` flag of a response format: not sent; always `false`; or `true` only when your schema already fits the subset of `strict_subset`, and `false` otherwise. Your schema is never changed |
+| `strict_subset` | `standard`, `narrow` | which documented subset `when_fits` tests |
+| `json_schema_key` | `schema`, `schema_definition` | the name under which the schema stands in the response format |
+| `stream_usage` | `on_request`, `unasked` | whether a stream is asked to report its token usage |
+| `store_field` | `omit`, `false` | whether `store: false` is sent. Set the preset's `sendsNoStoreOption` to true exactly when this is `false` |
+| `reasoning_carrier` | `none`, `message_field` | whether reasoning that came beside an answer goes back with that answer in the next round, in the opaque part of `Answer::toMessage()`. A third value, `content_entries`, is not built yet |
+| `inline_reasoning` | `keep`, `strip` | whether one leading `<think>…</think>` block is cut from the text of an answer |
+| `finish_content_filter` | `withheld`, `unknown` | whether the finish reason `content_filter` means withheld output, or only that the server did not understand why the answer ended |
+| `models_path` | `/models`, or another path under the base URL | where the model list is |
+| `model_id_field` | `id`, or another field name | the field of an entry of the model list that goes into a request's `model` |
+
+Set `forced_tool_call` only to say `none` for a model that cannot be forced; any other value must be the one
+`named_tool_choice` gives, or the preset fails as `not_configured`.
+
+**When `when_fits` sends `strict: true`.** Only when every part of your schema is something the provider's
+documentation names as accepted. For `standard`: the keywords `type`, `properties`, `required`,
+`additionalProperties: false`, `items`, `enum`, `const`, `anyOf` (not at the root), `$defs` and `$ref` to `#` or
+`#/$defs/…`, `pattern`, `format` (`date-time`, `time`, `date`, `duration`, `email`, `hostname`, `ipv4`, `ipv6`,
+`uuid`), `multipleOf`, `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `minItems`, `maxItems`; every
+property required and every object closed; at most 10 levels and 5000 properties. `narrow` is the same without
+`pattern`, `format`, `minimum`, `maximum`, `multipleOf`, `minItems` and `maxItems`, with at most 5 levels and 100
+properties. Any other keyword makes the flag `false`, also `description`, `title`, `default`, `minLength` and
+`oneOf`: the documentation the library was built from does not name them as accepted. The answer is checked against
+your whole schema either way.
+
+What the adapter reads without an option, for every server: an answer whose `content` is a string, `null` or a list
+of entries; tool-call arguments as a string that holds JSON or as an object; a tool call by its presence, whatever
+finish reason came with it; reasoning beside the answer, which never becomes answer text; the usage wherever a
+stream puts it; a stream with or without its closing `data: [DONE]`; and four shapes of an error body. A status 429
+whose body says the account is out of credit ends as `rejected` with the provider's code and is not tried again; one
+that says the provider is overloaded ends as `unavailable`. A finish reason that means "tool calls" on an answer
+without a tool call is given as `other`.
+
+**A credential a server repeats.** For every adapter built on the adapter base: when a server repeats the key or the
+token it was sent, the model name of the answer falls back to the model of the request, an entry of the model list
+that holds it is skipped, and an answer with a tool call that holds it fails as `provider_error`, in a stream as the
+failed event.
 
 ### (c) A new format
 

@@ -1,0 +1,8 @@
+{
+    "error": {
+        "message": "The value {{echo}} was not accepted.",
+        "type": "{{echo}}",
+        "param": null,
+        "code": "{{echo}}"
+    }
+}

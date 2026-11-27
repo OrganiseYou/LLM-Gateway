@@ -111,6 +111,8 @@ abstract readonly class AbstractAdapter implements Gateway
      */
     private const int OPAQUE_LIMIT_CONTAINERS = 10_000;
 
+    private const string TOOL_CALL_REPEATS_A_CREDENTIAL = 'a tool call of the answer repeats a credential of the gateway and is not handed on';
+
     private const string REDIRECTED = 'the server answered with a redirect, and a redirect is never followed';
 
     /** Every address starts with this: the resolved base URL without a slash at its end. */
@@ -716,7 +718,7 @@ abstract readonly class AbstractAdapter implements Gateway
         array $inUse,
     ): Answer|array {
         if ($request === null) {
-            return $this->readModels($response);
+            return $this->withoutModelsThatRepeatACredential($this->readModels($response), $inUse);
         }
 
         return $this->finished($this->readCompletion($response, $request), $request, $attempt, $traceId, $started, $inUse);
@@ -752,6 +754,14 @@ abstract readonly class AbstractAdapter implements Gateway
             throw $this->failure(ErrorReason::ProviderError, 'the answer has no text and no tool call');
         }
 
+        // A server can repeat the credential it was sent. A tool call that holds it cannot be handed on, and a tool
+        // call cannot be handed on in part: the answer fails. The detail is fixed and holds nothing of the call.
+        foreach ($answer->toolCalls as $toolCall) {
+            if ($this->toolCallRepeatsACredential($toolCall, $inUse)) {
+                throw $this->failure(ErrorReason::ProviderError, self::TOOL_CALL_REPEATS_A_CREDENTIAL);
+            }
+        }
+
         // The place of the structured check. An answer has a structured result when its request has a response
         // format and the answer asks for no tool call: an answer that asks for tool calls is not the final answer,
         // and its text is not checked. A result the adapter got its own way (a forced tool call) is kept as it is
@@ -768,7 +778,8 @@ abstract readonly class AbstractAdapter implements Gateway
             $structured,
             $answer->toolCalls,
             $answer->finishReason,
-            $answer->model,
+            // A name that holds a control character or repeats a credential is not the name of a model.
+            Rules::isModelName($answer->model) && ! $this->repeatsACredential($answer->model, $inUse) ? $answer->model : $request->model,
             $answer->usage,
             $this->millisecondsSince($started),
             $attempts,
@@ -797,7 +808,31 @@ abstract readonly class AbstractAdapter implements Gateway
             return null;
         }
 
-        $bare = str_replace('\\', '', $opaque->data);
+        if ($this->repeatsACredential($opaque->data, $inUse)) {
+            return null;
+        }
+
+        return $opaque;
+    }
+
+    /**
+     * Whether a text a server wrote holds a credential of the gateway anywhere in it, in any case of letters. A
+     * credential is searched as it is, as JSON writes it inside a string, and with every backslash taken out of
+     * both: JSON text inside a string writes a slash as a backslash and a slash.
+     *
+     * @param list<Secret> $inUse the secrets asked for this attempt alone: a token of the supplier
+     */
+    private function repeatsACredential(
+        #[SensitiveParameter]
+        string $text,
+        #[SensitiveParameter]
+        array $inUse,
+    ): bool {
+        if ($text === '') {
+            return false;
+        }
+
+        $bare = str_replace('\\', '', $text);
         foreach ([...$this->credentials->secrets(), ...$inUse] as $secret) {
             $plain = $secret->reveal();
             $forms = [
@@ -806,18 +841,68 @@ abstract readonly class AbstractAdapter implements Gateway
                 substr((string) json_encode($plain, JSON_INVALID_UTF8_SUBSTITUTE), 1, -1),
             ];
             foreach ($forms as $form) {
-                if ($form !== '' && stripos($opaque->data, $form) !== false) {
-                    return null;
+                if ($form !== '' && stripos($text, $form) !== false) {
+                    return true;
                 }
             }
 
             $bareSecret = str_replace('\\', '', $plain);
             if ($bareSecret !== '' && stripos($bare, $bareSecret) !== false) {
-                return null;
+                return true;
             }
         }
 
-        return $opaque;
+        return false;
+    }
+
+    /**
+     * Whether the id, the name or the arguments of a tool call hold a credential of the gateway: the arguments as
+     * they arrived, and as they were decoded.
+     *
+     * @param list<Secret> $inUse
+     */
+    private function toolCallRepeatsACredential(
+        #[SensitiveParameter]
+        ToolCall $toolCall,
+        #[SensitiveParameter]
+        array $inUse,
+    ): bool {
+        $decoded = $toolCall->arguments === null
+            ? ''
+            : (string) json_encode($toolCall->arguments, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PARTIAL_OUTPUT_ON_ERROR);
+
+        return $this->repeatsACredential($toolCall->id, $inUse)
+            || $this->repeatsACredential($toolCall->name, $inUse)
+            || $this->repeatsACredential($toolCall->rawArguments, $inUse)
+            || $this->repeatsACredential($decoded, $inUse);
+    }
+
+    /**
+     * The model list without the entries whose id, name or an alias holds a credential of the gateway: such an
+     * entry is skipped, as an entry without a usable id is.
+     *
+     * @param array<mixed> $models what the adapter read
+     * @param list<Secret> $inUse
+     * @return list<ModelInfo>
+     */
+    private function withoutModelsThatRepeatACredential(
+        #[SensitiveParameter]
+        array $models,
+        #[SensitiveParameter]
+        array $inUse,
+    ): array {
+        $kept = [];
+        foreach ($models as $model) {
+            if (! $model instanceof ModelInfo) {
+                throw new WrongUse('The adapter gave a value that is not a model.');
+            }
+            if ($this->repeatsACredential(implode("\n", [$model->id, (string) $model->name, ...$model->aliases]), $inUse)) {
+                continue;
+            }
+            $kept[] = $model;
+        }
+
+        return $kept;
     }
 
     // ---------------------------------------------------------------------------------------------------------
@@ -940,6 +1025,17 @@ abstract readonly class AbstractAdapter implements Gateway
                                     yield new StreamFinished($answer);
 
                                     return;
+                                }
+                                // A tool call that repeats a credential is not handed on, in neither of its events.
+                                $repeats = match (true) {
+                                    $event instanceof ToolCallStarted => $this->repeatsACredential($event->id . "\n" . $event->name, $inUse),
+                                    $event instanceof ToolCallCompleted => $this->toolCallRepeatsACredential($event->toolCall, $inUse),
+                                    default => false,
+                                };
+                                if ($repeats) {
+                                    $fault = self::faultOfAdapter($this->failure(ErrorReason::ProviderError, self::TOOL_CALL_REPEATS_A_CREDENTIAL), $status);
+
+                                    break;
                                 }
                                 if ($event instanceof TextDelta) {
                                     $text .= $event->text;

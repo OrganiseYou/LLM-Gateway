@@ -1,0 +1,6 @@
+data: {"id":"chatcmpl-example-1","object":"chat.completion.chunk","created":1795000000,"model":"example-model","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-example-1","object":"chat.completion.chunk","created":1795000000,"model":"example-model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: [DONE]
+

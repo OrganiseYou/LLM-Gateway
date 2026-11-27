@@ -61,6 +61,21 @@ All notable changes to this package are written here. The format follows
   `everyObjectHasARequiredProperty()`, `depth()` and `propertyCount()` tell whether a schema fits what a server
   accepts. Only the places where a schema stands are read: never the name of a property, nor a value of `enum`,
   `const`, `default` or `examples`. The caller's schema is never changed.
+- `Adapter\OpenAiCompatible\ChatCompletionsAdapter`: the first shipped adapter, for the chat-completions format
+  (`POST {base}/chat/completions`) that many servers speak. It sends a closed list of fields and nothing else, reads
+  an answer and a stream tolerantly (content as a string or a list, tool-call arguments as text or as an object, a
+  tool call by its presence, usage wherever a stream puts it, a stream with or without its last line), reads four
+  shapes of an error body, and lists models from `{"data": […]}`, `{"models": […]}` or a bare list. Eighteen
+  dialect options of a preset say where a server differs (`max_tokens_field`, `system_role`, `system_messages`,
+  `assistant_content_without_text`, `required_word`, `named_tool_choice`, `tool_strict`, `tool_result_name`,
+  `json_schema_strict`, `strict_subset`, `json_schema_key`, `stream_usage`, `store_field`, `reasoning_carrier`,
+  `inline_reasoning`, `finish_content_filter`, `models_path`, `model_id_field`); the README lists their values. A
+  status 429 that means "no credit" is `rejected` and is not tried again, one that means "the provider is
+  overloaded" is `unavailable`, and a wait in `retry-after-ms` is kept. With `reasoning_carrier: message_field` the
+  reasoning beside an answer travels in the opaque part and goes back only with the message it came with. No preset
+  ships with it yet, and the value `content_entries` of `reasoning_carrier` is not built yet. `json_schema_strict:
+  when_fits` sends `strict: true` only for a schema that uses nothing but what the provider's documentation names as
+  accepted; an option whose name the adapter does not know is `not_configured`.
 
 ### Changed
 
@@ -75,6 +90,12 @@ All notable changes to this package are written here. The format follows
   a header itself which a field of its preset also fills is refused with a `WrongUse` before anything is sent.
 
 ### Security
+
+- A credential that a server repeats no longer reaches a caller through the model name of an answer, the model list
+  or a tool call, for every adapter built on the adapter base. A model name that holds a credential or a control
+  character is replaced by the model of the request; an entry of the model list whose id, name or alias holds one is
+  skipped; an answer with a tool call whose id, name or arguments hold one fails as `provider_error` with a fixed
+  detail, in a stream as the failed event, because a tool call cannot be handed on in part.
 
 - Everything the library throws keeps no argument of any call in its trace. PHP hides a sensitive argument from the
   printed forms of a trace only; a walk over the trace could still read it. The library now throws its own

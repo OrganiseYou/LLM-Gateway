@@ -1,0 +1,48 @@
+{
+    "id": "chatcmpl-synthetic-0010",
+    "object": "chat.completion",
+    "created": 1790000000,
+    "model": "example-chat-1-2026-01-01",
+    "choices": [
+        {
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "content": null,
+                "refusal": null
+            },
+            "logprobs": null,
+            "finish_reason": "content_filter",
+            "content_filter_results": {
+                "violence": {
+                    "filtered": true,
+                    "severity": "medium"
+                }
+            }
+        }
+    ],
+    "usage": {
+        "prompt_tokens": 3,
+        "completion_tokens": 2,
+        "total_tokens": 5,
+        "prompt_tokens_details": {
+            "cached_tokens": 0
+        },
+        "completion_tokens_details": {
+            "reasoning_tokens": 0
+        }
+    },
+    "service_tier": "default",
+    "system_fingerprint": "fp_synthetic",
+    "prompt_filter_results": [
+        {
+            "prompt_index": 0,
+            "content_filter_results": {
+                "hate": {
+                    "filtered": false,
+                    "severity": "safe"
+                }
+            }
+        }
+    ]
+}

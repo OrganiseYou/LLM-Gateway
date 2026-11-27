@@ -57,7 +57,8 @@ Formats that exist and are not built, with the reason:
 
 ### 1.2 The adapters
 
-One adapter per format (LR-20). Four are built now. A fifth is reserved for decision G59.
+One adapter per format (LR-20). Four are built by LG-12 to LG-16. The fifth, for the Responses format, is built by
+LG-34: decision G59 is decided as option (a).
 
 | # | Class | Folder | Format | Preset entries |
 |---|---|---|---|---|
@@ -65,7 +66,7 @@ One adapter per format (LR-20). Four are built now. A fifth is reserved for deci
 | A2 | `MessagesAdapter` | `src/Adapter/Anthropic` | Messages | `claude` |
 | A3 | `GenerateContentAdapter` | `src/Adapter/Gemini` | generate-content | `gemini`, `vertex-ai`, `vertex-ai-eu` |
 | A4 | `ChatV2Adapter` | `src/Adapter/Cohere` | Chat v2 | `cohere` |
-| A5 | `ResponsesAdapter` (reserved) | `src/Adapter/OpenAiResponses` | Responses | none until G59 is decided; see section 3 |
+| A5 | `ResponsesAdapter` (built by LG-34) | `src/Adapter/OpenAiResponses` | Responses | the presets that G59 (a) moves to it; see section 3 |
 
 Every adapter extends `Adapter\Shared\AbstractAdapter`, is `final readonly`, and passes `Testing\ContractTestCase`.
 
