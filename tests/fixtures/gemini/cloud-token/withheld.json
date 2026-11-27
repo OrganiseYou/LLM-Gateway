@@ -1,0 +1,12 @@
+{
+  "candidates": [
+    {
+      "index": 0,
+      "finishReason": "FINISH_REASON_SAFETY"
+    }
+  ],
+  "usageMetadata": {"promptTokenCount": 3, "thoughtsTokenCount": 2, "totalTokenCount": 5, "trafficType": "EXAMPLE"},
+  "modelVersion": "example-generate-1",
+  "createTime": "2026-01-01T00:00:00Z",
+  "responseId": "resp-example01"
+}

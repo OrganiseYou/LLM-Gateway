@@ -129,6 +129,18 @@ abstract class ContractTestCase extends TestCase
         return true;
     }
 
+    /**
+     * Whether the gateway keeps data of its format with every answer that holds a tool call, also when the answer
+     * is the plain one of ContractFixture::ToolCall. Only the test of an adapter whose format puts something on a
+     * tool call that has no neutral form says true (whether the server itself gave the call an id, for example).
+     * The set then allows an opaque part on an answer with tool calls, and searches it for the key; an answer
+     * without a tool call must still have none.
+     */
+    protected function keepsDataWithEveryToolCall(): bool
+    {
+        return false;
+    }
+
     // ---------------------------------------------------------------------------------------------------------
     // The answer (design section 4, LR-07).
     // ---------------------------------------------------------------------------------------------------------
@@ -1063,6 +1075,10 @@ abstract class ContractTestCase extends TestCase
         // Data that must go back unchanged is the opaque part of the answer, and nothing else of the answer holds it.
         if ($fixture === ContractFixture::ToolCallWithOpaqueData) {
             $this->assertOpaqueDataIsBesideTheAnswer($answer, $events, $what);
+        } elseif ($expected !== [] && $this->keepsDataWithEveryToolCall()) {
+            if ($answer->opaque !== null) {
+                $this->assertNoKeyIn(['the data of the opaque part' => $answer->opaque->data], $what . ': the opaque part');
+            }
         } else {
             self::assertNull($answer->opaque, $what . ': an answer of plain text and tool calls has no opaque part');
         }

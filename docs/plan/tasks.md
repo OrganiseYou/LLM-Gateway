@@ -240,7 +240,7 @@ the adapters cannot be built on the contract of S1 as it is. Section numbers bel
   it and the answer is checked against the caller's full schema; a recursive schema takes the emulated route.
 
 ### LG-15 · The generate-content adapter
-- Status: todo · Needs: LG-29, LG-30, LG-31, LG-32
+- Status: done · Needs: LG-29, LG-30, LG-31, LG-32
 - Note: From LG-13: `Adapter\Shared\RawJson` cuts a member out of a body as text; anything sealed as one string must pass the size and container limits as text before it is decoded, in both directions and per stream piece (G100).
 - Note: From LG-12: copy its structure (Dialect, Reading, ErrorBody, fixtures builder, the test files under tests/Unit/Adapter/OpenAiCompatible); the base now keeps an echoed credential out of the model name, the model list and tool calls; a finish word for tool calls without a call is `Other`; an allow-list decides when a strict schema mode is sent.
 - Note: From LG-31: the adapter needs a test with a header setting filled in, to show none of its own headers clashes.
@@ -258,6 +258,7 @@ the adapters cannot be built on the contract of S1 as it is. Section numbers bel
 
 ### LG-16 · The Chat v2 adapter
 - Status: todo · Needs: LG-29, LG-30, LG-31, LG-32
+- Note: From LG-15: no wall-clock bound in a test; a hand-built argument text with a repeated member name is not sent verbatim; the agreement check compares raw text in one spelling, in order.
 - Note: From LG-13: `Adapter\Shared\RawJson` cuts a member out of a body as text; anything sealed as one string must pass the size and container limits as text before it is decoded, in both directions and per stream piece (G100).
 - Note: From LG-12: copy its structure (Dialect, Reading, ErrorBody, fixtures builder, the test files under tests/Unit/Adapter/OpenAiCompatible); the base now keeps an echoed credential out of the model name, the model list and tool calls; a finish word for tool calls without a call is `Other`; an allow-list decides when a strict schema mode is sent.
 - Note: From LG-32: take `not` out in the same call as the constraint keywords, write `oneOf` as `anyOf` before sending, use the emulated route when `SchemaShape` says the reduced schema may be tighter (G89), and run `isRecursive()` and `everyObjectIsClosed()` on the copy that is sent.
@@ -279,6 +280,7 @@ the adapters cannot be built on the contract of S1 as it is. Section numbers bel
 
 ### LG-34 · The Responses adapter
 - Status: todo · Needs: LG-29, LG-30, LG-31, LG-32
+- Note: From LG-15: no wall-clock bound in a test; a hand-built argument text with a repeated member name is not sent verbatim; the agreement check compares raw text in one spelling, in order.
 - Note: From LG-13: `Adapter\Shared\RawJson` cuts a member out of a body as text; anything sealed as one string must pass the size and container limits as text before it is decoded, in both directions and per stream piece (G100).
 - Note: From LG-12: copy its structure (Dialect, Reading, ErrorBody, fixtures builder, the test files under tests/Unit/Adapter/OpenAiCompatible); the base now keeps an echoed credential out of the model name, the model list and tool calls; a finish word for tool calls without a call is `Other`; an allow-list decides when a strict schema mode is sent.
 - Note: From LG-32: the provider's file names limits the row of 5.9 omits (root may not be an `anyOf`, total length of names and enum values, number of enum values); check them with the value method of `SchemaShape` (G89) before sending `strict`.
@@ -341,6 +343,7 @@ weight is compared with the provider's page first.
 
 ### LG-21 · Presets: Claude, Gemini and Vertex AI, Cohere, Mistral, Microsoft Copilot / Azure OpenAI
 - Status: todo · Needs: LG-13, LG-14, LG-15, LG-16
+- Note: From LG-15: the three entries differ only in base URL, sign-in and options; the `vertex-ai` base URLs carry the publisher path, and a model name is a bare id (G113); `structured_output_field` is an option and not confirmed.
 - Note: From LG-13: how a streamed content list is joined for the `mistral` entry is not confirmed by the provider's file (G100); the live check of LG-27 must cover a streamed answer with thinking and its next round.
 - Note: From LG-31: no field of an entry names a header that carries a credential at that provider (the neutral reserved list cannot know provider header names).
 - Note: G59 is decided as (a): the `azure-openai` entry is built on the Responses adapter, so it also needs LG-34. G62: the catalogue has no `kyutai` entry; its count is twenty.
@@ -367,6 +370,7 @@ weight is compared with the provider's page first.
 
 ### LG-22 · The tool loop
 - Status: todo · Needs: LG-09
+- Note: From LG-15: a supplier token with a space or non-ASCII bytes reaches the sign-in header through the base, and one stream event has no size cap in the base; neither is fixed yet.
 - Note: From LG-09: the architecture rule "never runs caller code" reserves the name `Loop\ToolExecutor` for the executor seam; update its list if the loop names it differently.
 - Note: G53: an answer that asks for tool calls has no structured result; only the final answer is checked. A check that goes over its limits comes back as an unusable result, not an exception (G52).
 - Note: From LG-11 (`docs/design/adapters.md` 5.1, 5.2, 5.3, 12): the loop builds the assistant message of the next round with `Answer::toMessage()`, so the opaque part goes back; every tool call of an answer gets a tool message before the next request, also when a limit stops the loop halfway (two providers refuse a partial set); the loop gives no temperature to a model whose capability says it takes none; an answer that ends as `Refusal` or `ContentFilter` ends the loop with a typed outcome.
@@ -422,6 +426,7 @@ weight is compared with the provider's page first.
 
 ### LG-27 · Run the live check with real keys
 - Status: needs-joris · Needs: LG-25
+- Note: From LG-15: not confirmed and to be seen live: whether the skip value is accepted for a hand-built call; whether a parts list joined from a stream is taken back; what real call ids look like and whether results match without an id; which structured-output field counts; whether an empty text part or two `user` contents in a row are accepted.
 - Note: From LG-13: how a streamed content list is joined for the `mistral` entry is not confirmed by the provider's file (G100); the live check of LG-27 must cover a streamed answer with thinking and its next round.
 - Note: From LG-14: not confirmed and to be seen live: a thinking list joined from a stream is accepted back; what the provider answers when thinking is left out of the next round.
 - For Joris: run `php live/check.php <preset>` for each provider you have an account for, and write the outcome per

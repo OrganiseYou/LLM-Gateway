@@ -1,0 +1,15 @@
+{
+  "error": {
+    "code": {{code}},
+    "message": "{{echo}}",
+    "status": "{{status}}",
+    "details": [
+      {
+        "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+        "reason": "{{echo}}",
+        "domain": "googleapis.com",
+        "metadata": {}
+      }
+    ]
+  }
+}

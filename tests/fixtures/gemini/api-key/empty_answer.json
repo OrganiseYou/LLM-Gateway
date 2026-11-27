@@ -1,0 +1,12 @@
+{
+  "candidates": [
+    {
+      "index": 0,
+      "content": {"role": "model", "parts": []},
+      "finishReason": "STOP"
+    }
+  ],
+  "usageMetadata": {"promptTokenCount": 3, "candidatesTokenCount": 2, "totalTokenCount": 5},
+  "modelVersion": "example-generate-1",
+  "responseId": "resp-example01"
+}

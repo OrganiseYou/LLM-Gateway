@@ -108,6 +108,30 @@ All notable changes to this package are written here. The format follows
   code says the spend cap was reached is `rejected` and not tried again, a response with `x-should-retry: false` is
   not tried again and tells no wait, and an `error` event in a stream ends it with the reason of its type. No preset
   ships with it yet. The README lists its options.
+- `Adapter\Gemini\GenerateContentAdapter`: the third shipped adapter, for the generate-content format
+  (`POST {base}/models/{model}:generateContent`, a stream at `:streamGenerateContent?alt=sse`), with its model list
+  (`GET {base}/models?pageSize=1000`, one page). One adapter for both ways in the provider has: they differ in the
+  base URL, the sign-in and the options of the preset. It sends a closed list of fields (`systemInstruction`,
+  `contents`, `tools`, `toolConfig`, `generationConfig`, `store`); the key or the token travels in a header, never
+  in the address. The model stands in the path, so a model name that is not one path segment of letters, digits,
+  dots, underscores and hyphens is refused as `rejected` before anything is sent. Two options of its own, both with
+  a default: `structured_output_field` (`response_json_schema` or `response_format`: the provider's pages do not
+  agree on the field) and `store_field` (`omit` or `false`). System messages go into `systemInstruction`, and the
+  tool results of one round are one `user` content in the order of the calls. A tool call that comes without an id
+  gets one from the adapter (`call-0`, `call-1`), which is not sent back; an id the server gave goes back as it
+  came. A thought signature that arrives on a part never becomes answer text. The list of parts of every answer that
+  holds a signature or a tool call travels in the opaque part, as the JSON text the server wrote, and goes back only
+  with the message it came with, and only when every part has exactly the members the provider documents; an
+  assistant message built by hand or changed carries the documented skip value on its first tool call. An answer
+  with a tool call that names no tool fails as `provider_error`. The
+  schema of a response format is sent as it is and the answer is checked against the caller's whole schema; tools
+  together with a response format are emulated by default. Finish reasons are read in both spellings; a prompt the
+  provider refused (a successful response without an answer) is `rejected` with the provider's reason as the code;
+  a status 400 whose body says the key is not valid is `credentials_rejected`; a status 402 is `rejected` and not
+  tried again. No preset ships with it yet. The README lists its options.
+- `Testing\ContractTestCase::keepsDataWithEveryToolCall()`: a test class of an adapter that keeps data of its
+  format with every answer that holds a tool call says true, and the shared set then allows an opaque part on such
+  an answer. The default is false, so every existing test class runs as before.
 - `Adapter\Shared\RawJson::hasRepeatedName()` tells whether an object anywhere in a JSON text holds the same member
   name twice, and `RawJson::at()` takes an optional longest length, so a value that is too long is not copied.
 
