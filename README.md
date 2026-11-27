@@ -241,6 +241,11 @@ echo $final->text;  // prints It is 18 degrees in Utrecht.
   `JsonSchema::fromJson()`.
 - A model can garble a call. Arguments that cannot be read are not an exception: `isReadable()` is false and
   `argumentsError` says why. A tool name is given as the model wrote it; check it against your own tools.
+- Build the assistant message of the next round with `$answer->toMessage()`. Some providers send data with an
+  answer that must go back unchanged; `toMessage()` carries it as a `Contract\OpaquePart`, which you skip when you
+  read a message and keep when you send or store one (`$part->data` is text; build it again with `new OpaquePart`).
+  A part that holds your key, or is larger than 1 MiB, is dropped without a word; the next round then goes without
+  it, and a provider that insists on that data may refuse the request (`rejected`).
 - The tool choice is `ToolChoice::auto()` (the default), `ToolChoice::none()`, `ToolChoice::required()` (some tool)
   or `ToolChoice::tool('get_weather')` (this tool). Set it with `withToolChoice()` or the `toolChoice` argument.
 - A tool loop that does these rounds for you is not built yet.
@@ -704,6 +709,19 @@ base does everything that is the same for every format.
 `$this->failure($reason, $detail, $providerCode)` builds an error to throw; `$this->setting($key)` reads a setting of
 the customer; `$this->preset` holds the preset, with its `adapterOptions`.
 
+**Optional: data that must go back unchanged.** Only for a format whose answers hold such data: give your adapter
+the constant `OPAQUE_FORMAT`, hand `$this->seal($text, $toolCalls, $content)` to `answer()` as its last argument, and
+send what `$this->unseal($message)` gives in place of the assistant message you would build; it gives `null` for a
+part that is not yours or a message that was changed. The example below has no such data and uses none of the three.
+
+- The content comes back as PHP arrays, not as the provider's bytes: an empty JSON object comes back as an empty
+  list, and a number is written again in another spelling. Anything that must come back byte for byte is sealed as
+  one string: the JSON text as you received it.
+- The content is not the provider's word when it comes back. It comes from wherever the caller keeps its messages,
+  and a part has no secret: whoever can write there can choose the content. Copy from it only the kinds of block and
+  the fields your format documents, and never take an address, a header or a model name from it.
+- Pick a mark no other adapter of your project uses; `a1` to `a9` are kept for the adapters of the library.
+
 **What you must not do:**
 
 - Do not build an address outside `url()`. A request whose address does not start with the base URL of the gateway
@@ -1080,7 +1098,8 @@ echo $transport->requests()[0]->url;   // prints https://llm.example.test/api/ta
 
 **Prove it with the shared test set.** `Testing\ContractTestCase` holds what every gateway must do: a plain answer, a
 tool call, a garbled tool call, a structured answer that matches and one that does not, a stream, every error
-reason, retries and waits, the timeout, and no key in any output. An adapter passes it or it is not an adapter.
+reason, retries and waits, the timeout, data that must go back unchanged, and no key in any output. An adapter passes
+it or it is not an adapter.
 
 It is a PHPUnit test case, written for PHPUnit 12. The library does not require PHPUnit, so add it to your own
 project. Pest 4 brings PHPUnit 12 and runs the class as it is.
@@ -1107,15 +1126,25 @@ final readonly class ExampleFixtures implements AdapterFixtures
 {
     public function __construct(private string $directory) {}
 
-    public function answer(ContractFixture $fixture): ?HttpResponse
+    public function answer(ContractFixture $fixture): HttpResponse|NotApplicable|null
     {
-        return new HttpResponse(200, ['Content-Type' => 'application/json'], $this->read(self::file($fixture) . '.json'));
+        $file = self::file($fixture);
+        if ($file instanceof NotApplicable) {
+            return $file;
+        }
+
+        return new HttpResponse(200, ['Content-Type' => 'application/json'], $this->read($file . '.json'));
     }
 
-    public function stream(ContractFixture $fixture): ?array
+    public function stream(ContractFixture $fixture): array|NotApplicable|null
     {
+        $file = self::file($fixture);
+        if ($file instanceof NotApplicable) {
+            return $file;
+        }
+
         // One event per chunk: an event ends with a blank line.
-        $chunks = preg_split('/(?<=\n\n)/', $this->read(self::file($fixture) . '.sse'), -1, PREG_SPLIT_NO_EMPTY);
+        $chunks = preg_split('/(?<=\n\n)/', $this->read($file . '.sse'), -1, PREG_SPLIT_NO_EMPTY);
 
         return $chunks === false ? null : $chunks;
     }
@@ -1146,10 +1175,11 @@ final readonly class ExampleFixtures implements AdapterFixtures
         ]);
     }
 
-    private static function file(ContractFixture $fixture): string
+    private static function file(ContractFixture $fixture): string|NotApplicable
     {
         // No default: a case that is added later then fails here instead of being left out.
         return match ($fixture) {
+            ContractFixture::ToolCallWithOpaqueData => new NotApplicable('an answer of this format holds no data that must go back unchanged'),
             ContractFixture::PlainAnswer => 'plain_answer',
             ContractFixture::ToolCall, ContractFixture::ToolCallBesideResponseFormat => 'tool_call',
             ContractFixture::ParallelToolCalls => 'parallel_tool_calls',
@@ -1221,8 +1251,10 @@ fault.
 - A gateway that can do everything and streams natively skips six: the five tests of a refusal (tools, a forced tool
   call, a response format, tools with a response format, the model list), because there is nothing to refuse, and
   the test of a gateway without streaming.
-- Fixtures can answer `NotApplicable` for an error inside a successful response or for a request the format cannot
-  carry. That scenario is then skipped with the reason they give. The example above has a fixture for both, so it skips only those six.
+- Fixtures can answer `NotApplicable` for an error inside a successful response, for a request the format cannot
+  carry and for an answer with opaque data. That scenario is then skipped with the reason they give. The example
+  above has a fixture for the first two, and its format has no opaque data: it skips those six and the five tests
+  of an answer with opaque data.
 - A gateway that lacks a capability skips the scenarios that need it. Its refusal test runs in their place.
 - One more test is skipped when PHP leaves the arguments out of traces (`zend.exception_ignore_args`, which
   `php.ini-production` switches on). Set it to 0 for the tests, with
@@ -1306,6 +1338,8 @@ The fake keeps the rules of a real gateway, so a test sees what production will 
 - A call with nothing scripted throws a `LogicException`. So does `models()` or `check()` when you gave it nothing.
 - A request with a response format gets a structured result: the text is checked against the schema exactly as a
   real gateway checks it. An answer with tool calls gets none.
+- The fake never makes an opaque part. One you script with `willAnswer()` reaches your code in `Answer::$opaque` and
+  in `toMessage()`, and `requests()` shows the parts your code sent in the next round.
 - An answer without text and without a tool call is a `provider_error`, unless it was cut off at the token limit.
 - `willStream()` refuses, where you script it, a stream that breaks a rule: a text that is not the text of its
   deltas, a tool call that starts and never completes, usage reported twice.

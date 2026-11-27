@@ -12,6 +12,7 @@ use OrganiseYou\LlmGateway\Contract\ErrorReason;
 use OrganiseYou\LlmGateway\Contract\FinishReason;
 use OrganiseYou\LlmGateway\Contract\Gateway;
 use OrganiseYou\LlmGateway\Contract\GatewayException;
+use OrganiseYou\LlmGateway\Contract\OpaquePart;
 use OrganiseYou\LlmGateway\Contract\Request;
 use OrganiseYou\LlmGateway\Contract\Stream\StreamEvent;
 use OrganiseYou\LlmGateway\Contract\Stream\StreamFailed;
@@ -22,6 +23,7 @@ use OrganiseYou\LlmGateway\Contract\Stream\ToolCallStarted;
 use OrganiseYou\LlmGateway\Contract\Stream\UsageReported;
 use OrganiseYou\LlmGateway\Contract\StructuredResult;
 use OrganiseYou\LlmGateway\Contract\Usage;
+use OrganiseYou\LlmGateway\Testing\ContractFixture;
 use OrganiseYou\LlmGateway\Testing\ContractTestCase;
 
 /**
@@ -48,6 +50,11 @@ final class BrokenGateway implements Gateway
     public const string WRONG_ATTEMPTS = 'counts an attempt too many in the failed event of a stream';
     public const string NO_STATUS_IN_STREAM = 'leaves the status out of the failed event of a stream';
     public const string OTHER_STARTED_NAME = 'starts a tool call under another tool name than it completes with';
+    public const string DROPS_OPAQUE = 'drops the opaque part of an answer';
+    public const string CHANGES_OPAQUE_BYTES = 'changes the bytes of the opaque part of an answer';
+    public const string OPAQUE_IN_TEXT = 'repeats the opaque data in the text of the answer and in a text event';
+    public const string KEY_IN_OPAQUE = 'lets the key the provider repeated into the opaque part of an answer';
+    public const string OPAQUE_IN_DETAIL = 'repeats the opaque data of a request in the detail of an error';
 
     public function __construct(private readonly Gateway $inner, private readonly string $fault, private readonly ?Capabilities $says = null) {}
 
@@ -64,6 +71,7 @@ final class BrokenGateway implements Gateway
                 self::KEY_IN_DETAIL => new GatewayException($error->reason, $error->traceId, $error->httpStatus, null, null, $error->attempts, 'the provider refused the key ' . ContractTestCase::MARKER_KEY),
                 self::KEY_AS_CODE => new GatewayException($error->reason, $error->traceId, $error->httpStatus, ContractTestCase::MARKER_KEY, null, $error->attempts),
                 self::INVENTED_CODE => new GatewayException($error->reason, $error->traceId, $error->httpStatus, 'invented_code', null, $error->attempts),
+                self::OPAQUE_IN_DETAIL => new GatewayException($error->reason, $error->traceId, $error->httpStatus, null, null, $error->attempts, self::opaqueDetail($request) ?? $error->detail),
                 default => $error,
             };
         }
@@ -135,13 +143,17 @@ final class BrokenGateway implements Gateway
                         $error->providerCode,
                         $error->retryAfterSeconds,
                         $error->attempts + ($this->fault === self::WRONG_ATTEMPTS ? 1 : 0),
-                        $error->detail,
+                        $this->fault === self::OPAQUE_IN_DETAIL ? self::opaqueDetail($request) ?? $error->detail : $error->detail,
                     ),
                     $event->textSoFar,
                     $event->toolCallsSoFar,
                 );
             }
             if ($event instanceof StreamFinished) {
+                if ($this->fault === self::OPAQUE_IN_TEXT && $event->answer->opaque !== null) {
+                    // The stream keeps its rules: the text of the answer is the text of its deltas.
+                    yield new TextDelta(ContractFixture::OPAQUE_MARKER);
+                }
                 $event = new StreamFinished($this->changed($event->answer, $this->fault === self::OTHER_TEXT ? ' And more.' : ''));
             }
 
@@ -160,6 +172,16 @@ final class BrokenGateway implements Gateway
             $structured = new StructuredResult(['city' => 'Paris', 'days' => 3], []);
         }
 
+        $opaque = match (true) {
+            $answer->opaque === null, $this->fault === self::DROPS_OPAQUE => null,
+            $this->fault === self::CHANGES_OPAQUE_BYTES => new OpaquePart(strtoupper($answer->opaque->data)),
+            $this->fault === self::KEY_IN_OPAQUE => new OpaquePart($answer->opaque->data . ContractTestCase::MARKER_KEY),
+            default => $answer->opaque,
+        };
+        if ($this->fault === self::OPAQUE_IN_TEXT && $answer->opaque !== null) {
+            $moreText .= ContractFixture::OPAQUE_MARKER;
+        }
+
         return new Answer(
             $answer->text . $moreText,
             $structured,
@@ -170,6 +192,23 @@ final class BrokenGateway implements Gateway
             $answer->latencyMs,
             $answer->attempts,
             $this->fault === self::OWN_TRACE_ID ? 'trace-of-the-broken' : $answer->traceId,
+            $opaque,
         );
+    }
+
+    /**
+     * What a careless gateway writes in an error about a request that carried an opaque part: a piece of the part.
+     */
+    private static function opaqueDetail(Request $request): ?string
+    {
+        foreach ($request->messages as $message) {
+            foreach ($message->parts as $part) {
+                if ($part instanceof OpaquePart && str_contains($part->data, ContractFixture::OPAQUE_MARKER)) {
+                    return 'the provider refused the data ' . ContractFixture::OPAQUE_MARKER;
+                }
+            }
+        }
+
+        return null;
     }
 }

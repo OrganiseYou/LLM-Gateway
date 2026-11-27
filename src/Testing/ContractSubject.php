@@ -36,9 +36,19 @@ interface ContractSubject
      *
      * @param bool $asStream the request will come from stream(); a gateway that streams natively then gets the
      *                       answer as a stream
-     * @throws LogicException when there is no fixture for it
+     * @throws LogicException when there is no fixture for it, or the fixtures say it does not apply: ask
+     *                        cannotGive() first
      */
     public function gives(ContractFixture $fixture, bool $asStream): void;
+
+    /**
+     * Why the provider of this gateway can never give this answer, in the words of whoever wrote its fixtures; null
+     * when it can be given. Only an answer with opaque data may not apply, and then for the whole response and for
+     * the stream alike.
+     *
+     * @throws LogicException when the fixtures say it for one of the two and not for the other, or for another case
+     */
+    public function cannotGive(ContractFixture $fixture, bool $asStream): ?string;
 
     /**
      * The next request fails this way.
@@ -64,7 +74,9 @@ interface ContractSubject
     public function requestItCannotCarry(Request $request): Request|NotApplicable;
 
     /**
-     * Whether a request so far held this text in its address, its headers or its body.
+     * Whether a request so far held this text in its address, its headers or its body. A gateway that makes no
+     * attempts has no provider: it answers whether a request it received so far held the text in an opaque part
+     * of a message, the one thing of a request that is meant for a provider alone.
      */
     public function sentToTheProvider(string $text): bool;
 

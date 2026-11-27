@@ -9,6 +9,7 @@ use OrganiseYou\LlmGateway\Contract\Capabilities;
 use OrganiseYou\LlmGateway\Contract\ErrorReason;
 use OrganiseYou\LlmGateway\Contract\Gateway;
 use OrganiseYou\LlmGateway\Contract\GatewayException;
+use OrganiseYou\LlmGateway\Contract\OpaquePart;
 use OrganiseYou\LlmGateway\Contract\Request;
 use OrganiseYou\LlmGateway\Contract\Stream\StreamFailed;
 use OrganiseYou\LlmGateway\Contract\Stream\StreamFinished;
@@ -68,6 +69,10 @@ final class FakeGatewaySubject implements ContractSubject
             0,
             1,
             'scripted',
+            // The fake makes no part of its own: this one is scripted, as a test of an application scripts it.
+            $fixture === ContractFixture::ToolCallWithOpaqueData
+                ? new OpaquePart('scripted data that goes back unchanged: ' . ContractFixture::OPAQUE_MARKER)
+                : null,
         );
 
         $this->scripted++;
@@ -116,8 +121,24 @@ final class FakeGatewaySubject implements ContractSubject
         return new NotApplicable('the fake gateway speaks no format: it takes every request the contract allows');
     }
 
+    public function cannotGive(ContractFixture $fixture, bool $asStream): ?string
+    {
+        return null;
+    }
+
     public function sentToTheProvider(string $text): bool
     {
+        // The fake has no provider. What a request holds for a provider alone is the opaque part of a message.
+        foreach ($this->fake->requests() as $request) {
+            foreach ($request->messages as $message) {
+                foreach ($message->parts as $part) {
+                    if ($part instanceof OpaquePart && str_contains($part->data, $text)) {
+                        return true;
+                    }
+                }
+            }
+        }
+
         return false;
     }
 

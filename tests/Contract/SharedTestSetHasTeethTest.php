@@ -11,12 +11,13 @@ use PHPUnit\Framework\SkippedTest;
 // set that must catch it. The test is first run on the sound gateway, where it passes, so the failure that follows
 // comes from the fault and from nothing else.
 
-it('fails a gateway that', function (string $fault, string $test, string $failsWith = AssertionFailedError::class): void {
+it('fails a gateway that', function (string $fault, string $test, string $failsWith = AssertionFailedError::class, bool $onTheAdapter = false): void {
     $sound = new BrokenContractCase('teeth');
-    $sound->onTheAdapter = in_array($fault, BrokenContractCase::ON_THE_ADAPTER, true);
+    $sound->onTheAdapter = $onTheAdapter || in_array($fault, BrokenContractCase::ON_THE_ADAPTER, true);
     $sound->{$test}();
 
     $broken = new BrokenContractCase('teeth');
+    $broken->onTheAdapter = $onTheAdapter;
     $broken->fault = $fault;
 
     expect(fn() => $broken->{$test}())->toThrow($failsWith);
@@ -47,6 +48,26 @@ it('fails a gateway that', function (string $fault, string $test, string $failsW
     BrokenContractCase::WRONG_REASON . ' (seen by the retry rule too)' => [BrokenContractCase::WRONG_REASON, 'testOnlyTheFailuresThatMayBeRetriedAreTriedAgain'],
     BrokenContractCase::ANOTHER_KEY => [BrokenContractCase::ANOTHER_KEY, 'testNoKeyInAnAnswerOrInTheEventsOfAStream'],
     BrokenContractCase::MISSING_FIXTURE => [BrokenContractCase::MISSING_FIXTURE, 'testAToolCall', LogicException::class],
+    // The opaque part: each assertion of the set on it, with the gateway that breaks it.
+    BrokenGateway::DROPS_OPAQUE => [BrokenGateway::DROPS_OPAQUE, 'testAToolCallWithOpaqueData'],
+    BrokenGateway::DROPS_OPAQUE . ' (in a stream)' => [BrokenGateway::DROPS_OPAQUE, 'testAStreamOfAToolCallWithOpaqueData'],
+    BrokenGateway::DROPS_OPAQUE . ' (on the adapter)' => [BrokenGateway::DROPS_OPAQUE, 'testAToolCallWithOpaqueData', AssertionFailedError::class, true],
+    BrokenGateway::DROPS_OPAQUE . ' (on the adapter, in a stream)' => [BrokenGateway::DROPS_OPAQUE, 'testAStreamOfAToolCallWithOpaqueData', AssertionFailedError::class, true],
+    BrokenContractCase::OPAQUE_FOR_THE_STREAM_ONLY => [BrokenContractCase::OPAQUE_FOR_THE_STREAM_ONLY, 'testOpaqueDataGoesBackWithTheMessageItCameWith', LogicException::class],
+    BrokenContractCase::OPAQUE_FOR_THE_STREAM_ONLY . ' (asked for the stream)' => [BrokenContractCase::OPAQUE_FOR_THE_STREAM_ONLY, 'testAStreamOfAToolCallWithOpaqueData', LogicException::class],
+    BrokenGateway::KEY_IN_OPAQUE => [BrokenGateway::KEY_IN_OPAQUE, 'testAToolCallWithOpaqueData'],
+    BrokenGateway::KEY_IN_OPAQUE . ' (in a stream)' => [BrokenGateway::KEY_IN_OPAQUE, 'testAStreamOfAToolCallWithOpaqueData'],
+    BrokenGateway::KEY_IN_OPAQUE . ' (on the adapter)' => [BrokenGateway::KEY_IN_OPAQUE, 'testAToolCallWithOpaqueData', AssertionFailedError::class, true],
+    BrokenGateway::OPAQUE_IN_TEXT => [BrokenGateway::OPAQUE_IN_TEXT, 'testAToolCallWithOpaqueData'],
+    BrokenGateway::OPAQUE_IN_TEXT . ' (in a stream)' => [BrokenGateway::OPAQUE_IN_TEXT, 'testAStreamOfAToolCallWithOpaqueData'],
+    BrokenGateway::CHANGES_OPAQUE_BYTES . ' (the fake: the part that arrives is not the scripted one)' => [BrokenGateway::CHANGES_OPAQUE_BYTES, 'testOpaqueDataGoesBackWithTheMessageItCameWith'],
+    BrokenGateway::CHANGES_OPAQUE_BYTES . ' (on the adapter: a changed part is not sent back)' => [BrokenGateway::CHANGES_OPAQUE_BYTES, 'testOpaqueDataGoesBackWithTheMessageItCameWith', AssertionFailedError::class, true],
+    BrokenGateway::DROPS_OPAQUE . ' (seen in the next round too)' => [BrokenGateway::DROPS_OPAQUE, 'testOpaqueDataGoesBackWithTheMessageItCameWith'],
+    BrokenContractCase::SENDS_OPAQUE_OF_A_CHANGED_MESSAGE => [BrokenContractCase::SENDS_OPAQUE_OF_A_CHANGED_MESSAGE, 'testOpaqueDataIsNotSentWithAMessageThatWasChanged'],
+    BrokenContractCase::SENDS_FOREIGN_OPAQUE => [BrokenContractCase::SENDS_FOREIGN_OPAQUE, 'testOpaqueDataThatIsNotTheGatewaysOwnIsNotSent'],
+    BrokenContractCase::SENDS_FOREIGN_OPAQUE . ' (a changed message too)' => [BrokenContractCase::SENDS_FOREIGN_OPAQUE, 'testOpaqueDataIsNotSentWithAMessageThatWasChanged'],
+    BrokenGateway::OPAQUE_IN_DETAIL => [BrokenGateway::OPAQUE_IN_DETAIL, 'testOpaqueDataIsInNoErrorAndInNoEventOfTheNextRound'],
+    BrokenGateway::OPAQUE_IN_DETAIL . ' (on the adapter)' => [BrokenGateway::OPAQUE_IN_DETAIL, 'testOpaqueDataIsInNoErrorAndInNoEventOfTheNextRound', AssertionFailedError::class, true],
 ]);
 
 it('fails a gateway that answers a request its capabilities say it cannot do', function (string $test): void {

@@ -23,9 +23,12 @@ use OrganiseYou\LlmGateway\Contract\Gateway;
 use OrganiseYou\LlmGateway\Contract\GatewayException;
 use OrganiseYou\LlmGateway\Contract\Internal\Rules;
 use OrganiseYou\LlmGateway\Contract\InvalidValue;
+use OrganiseYou\LlmGateway\Contract\Message;
 use OrganiseYou\LlmGateway\Contract\ModelInfo;
+use OrganiseYou\LlmGateway\Contract\OpaquePart;
 use OrganiseYou\LlmGateway\Contract\Operation;
 use OrganiseYou\LlmGateway\Contract\Request;
+use OrganiseYou\LlmGateway\Contract\Role;
 use OrganiseYou\LlmGateway\Contract\Secret;
 use OrganiseYou\LlmGateway\Contract\Stream\StreamEvent;
 use OrganiseYou\LlmGateway\Contract\Stream\StreamFailed;
@@ -52,6 +55,7 @@ use OrganiseYou\LlmGateway\Transport\Transport;
 use OrganiseYou\LlmGateway\Transport\TransportException;
 use OrganiseYou\LlmGateway\Transport\TransportFailure;
 use SensitiveParameter;
+use stdClass;
 use Throwable;
 
 /**
@@ -69,12 +73,40 @@ use Throwable;
  * A method of an adapter that takes a response or a request should mark that parameter `#[\SensitiveParameter]`
  * itself: PHP does not inherit the attribute, and an error thrown there would otherwise keep the body in its trace.
  *
+ * A format whose answers hold data that must go back unchanged in the next round (and that has no neutral form)
+ * gives its adapter the constant OPAQUE_FORMAT, seals that data with seal() into the opaque part it hands to
+ * answer(), and asks unseal() for it when it writes an assistant message of a request. An adapter of a format
+ * without such data uses none of the three.
+ *
  * @phpstan-type Fault array{reason: ErrorReason, status: ?int, code: ?string, wait: ?float, retryable: bool, detail: ?string, outcome: AttemptOutcome, failure: ?TransportFailure, broken: ?Error}
  */
 abstract readonly class AbstractAdapter implements Gateway
 {
     /** The trace id of an answer or an error an adapter builds; the base replaces it with the one of the call. */
     private const string NO_TRACE_ID = 'not-set';
+
+    /**
+     * The mark of the opaque parts this adapter seals: a small letter and then one or two small letters or digits
+     * that name nothing, such as `x7`. Never a name of a provider, a format or a class. An adapter that seals gives
+     * the constant its own value; `a1` to `a9` are kept for the adapters of the library. Empty: this adapter seals
+     * nothing and opens nothing.
+     *
+     * Two adapters with the same mark would take each other's parts for their own.
+     */
+    protected const string OPAQUE_FORMAT = '';
+
+    /**
+     * The largest opaque part, in bytes: 1 MiB. A larger one is not kept with an answer and is never opened. Why a
+     * limit: a part is decoded before it is sent back, and a process that runs out of memory cannot be caught.
+     */
+    private const int OPAQUE_LIMIT_BYTES = 1_048_576;
+
+    /**
+     * The most objects and lists an opaque part may hold, counted outside its strings. Why a second limit: decoded,
+     * a list of one item takes about ninety times the two bytes it is written in, so 1 MiB of nested lists takes
+     * about 90 MB. With this limit a part of 1 MiB takes at most about 20 MB to open.
+     */
+    private const int OPAQUE_LIMIT_CONTAINERS = 10_000;
 
     private const string REDIRECTED = 'the server answered with a redirect, and a redirect is never followed';
 
@@ -312,6 +344,9 @@ abstract readonly class AbstractAdapter implements Gateway
      * @param list<ToolCall> $toolCalls
      * @param string|null $model the model that answered; null or empty when the provider does not say
      * @param StructuredResult|null $structured only when the adapter got the structured answer its own way
+     * @param OpaquePart|null $opaque what seal() gave for this text and these tool calls, when the answer held
+     *                                something that must go back unchanged and has no neutral form; the base drops
+     *                                a part that holds a credential of the gateway or is larger than 1 MiB
      */
     final protected function answer(
         Request $request,
@@ -325,6 +360,8 @@ abstract readonly class AbstractAdapter implements Gateway
         ?string $model = null,
         #[SensitiveParameter]
         ?StructuredResult $structured = null,
+        #[SensitiveParameter]
+        ?OpaquePart $opaque = null,
     ): Answer {
         return new Answer(
             $text,
@@ -336,7 +373,123 @@ abstract readonly class AbstractAdapter implements Gateway
             0,
             1,
             self::NO_TRACE_ID,
+            $opaque,
         );
+    }
+
+    /**
+     * The opaque part for an answer: what the provider asks back, bound to this adapter and to the answer it came
+     * with. Hand the part to answer(), with the same text and the same tool calls. Seal only when the answer held
+     * something that has no neutral form: an answer of plain text and tool calls has no opaque part.
+     *
+     * The part is one JSON object: the mark of the adapter (OPAQUE_FORMAT), the SHA-256 of the text and of the id,
+     * the name and the raw arguments of every tool call, and the content. It holds no name of a preset, a class or
+     * a provider. The mark and the hash are a check against mix-ups, not a signature: there is no secret in them.
+     * Of a tool call only the id, the name and the raw arguments are in the hash, not its decoded arguments.
+     *
+     * The content is written as JSON in one fixed form, whatever the settings of PHP, and unseal() gives it back as
+     * PHP arrays. That is not the bytes of the provider: an empty JSON object comes back as an empty list, an object
+     * with the names "0", "1", … as a list, and a number is written again in another spelling (a whole number too
+     * large for PHP was a float before it came here). Anything that must come back byte for byte is sealed as one
+     * string: the JSON text as it was received.
+     *
+     * A part of more than 1 MiB, or with more than 10,000 objects and lists in it, is not kept: the base returns
+     * the answer without it, as it does for a part that holds a credential, and the next round is then sent
+     * without the data.
+     *
+     * @param string $text the text of the answer, as it is handed to answer()
+     * @param list<ToolCall> $toolCalls the tool calls of the answer, as they are handed to answer()
+     * @param array<mixed> $content what the provider asks back, as the adapter chooses; not empty. Strings, numbers,
+     *                              true, false, null and arrays of them, at most 128 levels deep
+     * @throws InvalidValue when the adapter has no OPAQUE_FORMAT in its form, a tool call is no tool call, the
+     *                      content is empty or it cannot be written as JSON
+     */
+    final protected function seal(
+        #[SensitiveParameter]
+        string $text,
+        #[SensitiveParameter]
+        array $toolCalls,
+        #[SensitiveParameter]
+        array $content,
+    ): OpaquePart {
+        $mark = self::markOf(static::OPAQUE_FORMAT);
+        if ($mark === null) {
+            throw new InvalidValue('An adapter that seals needs the constant OPAQUE_FORMAT: a small letter and then one or two small letters or digits.');
+        }
+        if ($content === []) {
+            throw new InvalidValue('There is nothing to seal: the content is empty.');
+        }
+        $hash = self::hashOfAnswer($text, $toolCalls);
+        if ($hash === null) {
+            throw new InvalidValue('The tool calls to seal with must be a list of tool calls.');
+        }
+
+        $data = self::fixedJson(['f' => $mark, 'm' => $hash, 'c' => $content]);
+        if ($data === null) {
+            // Nothing of the content is in the refusal.
+            throw new InvalidValue('The content to seal cannot be written as JSON.');
+        }
+
+        return new OpaquePart($data);
+    }
+
+    /**
+     * The content this adapter sealed with this message, or null. It is given only when the message is an assistant
+     * message with an opaque part, the part is byte for byte what seal() of this adapter writes (its mark, a hash,
+     * a content that is not empty, in the one fixed form), it is within the limits of a part (1 MiB, and 10,000
+     * objects and lists), and its hash is the hash of the message as it is now: the text of its text parts and the id, the name and the raw
+     * arguments of its tool calls. Send the content in place of what you would build from the message.
+     *
+     * In every other case (no part, a part of another adapter or of another library, a part that was changed, a
+     * message whose text or tool calls were changed, an adapter without a mark in its form) this gives null and
+     * throws nothing: build the message from its neutral fields and send nothing of the part. A part with another
+     * mark is not even decoded.
+     *
+     * The content is not the provider's word. It comes from wherever the caller keeps its messages, and whoever
+     * can write there can choose it freely: there is no secret in a part, and the hash binds the text and the tool
+     * calls of the message to themselves, not to the content. So treat the content as you treat every other field
+     * of a request. Copy from it only the kinds of block and the fields your format documents, each with the type
+     * you expect, and never take an address, a header, a model name or a setting from it.
+     *
+     * @return array<mixed>|null
+     */
+    final protected function unseal(#[SensitiveParameter] Message $message): ?array
+    {
+        $mark = self::markOf(static::OPAQUE_FORMAT);
+        if ($message->role !== Role::Assistant || $mark === null) {
+            return null;
+        }
+
+        $data = null;
+        foreach ($message->parts as $part) {
+            if ($part instanceof OpaquePart) {
+                $data = $part->data;
+            }
+        }
+        // Before anything is decoded: the size, and the first bytes seal() of this adapter always writes. A part of
+        // another adapter can be large, and decoding takes many times its size in memory.
+        if ($data === null || strlen($data) > self::OPAQUE_LIMIT_BYTES || ! str_starts_with($data, '{"f":"' . $mark . '","m":"')) {
+            return null;
+        }
+        if (! self::isWithinTheLimits($data)) {
+            return null;
+        }
+
+        $envelope = json_decode($data, true);
+        if (! is_array($envelope) || ! is_string($envelope['m'] ?? null) || ! is_array($envelope['c'] ?? null) || $envelope['c'] === []) {
+            return null;
+        }
+        // Only the bytes seal() writes: no name twice, no escaped name, no other key, nothing before or after.
+        if (self::fixedJson(['f' => $mark, 'm' => $envelope['m'], 'c' => $envelope['c']]) !== $data) {
+            return null;
+        }
+
+        $hash = self::hashOfAnswer($message->text(), $message->toolCalls);
+        if ($hash === null || ! hash_equals($hash, $envelope['m'])) {
+            return null;
+        }
+
+        return $envelope['c'];
     }
 
     /**
@@ -427,7 +580,7 @@ abstract readonly class AbstractAdapter implements Gateway
                 $fault = $this->faultOfResponse($response);
             } elseif ($response !== null) {
                 try {
-                    $result = $this->read($response, $request, $attempt, $traceId, $started);
+                    $result = $this->read($response, $request, $attempt, $traceId, $started, $inUse);
                 } catch (GatewayException $thrown) {
                     $fault = self::faultOfAdapter($thrown, $response->status);
                 } catch (Exception) {
@@ -460,6 +613,7 @@ abstract readonly class AbstractAdapter implements Gateway
     }
 
     /**
+     * @param list<Secret> $inUse the secrets asked for this attempt alone: a token of the supplier
      * @return Answer|list<ModelInfo>
      */
     private function read(
@@ -469,17 +623,20 @@ abstract readonly class AbstractAdapter implements Gateway
         int $attempt,
         string $traceId,
         float $started,
+        #[SensitiveParameter]
+        array $inUse,
     ): Answer|array {
         if ($request === null) {
             return $this->readModels($response);
         }
 
-        return $this->finished($this->readCompletion($response, $request), $request, $attempt, $traceId, $started);
+        return $this->finished($this->readCompletion($response, $request), $request, $attempt, $traceId, $started, $inUse);
     }
 
     /**
      * The answer of the adapter with what only the base knows.
      *
+     * @param list<Secret> $inUse the secrets asked for this attempt alone: a token of the supplier
      * @throws GatewayException provider_error, when the answer has no text and no tool call and was not cut off at
      *                          the token limit; rejected, when the schema of the response format cannot be used
      */
@@ -490,6 +647,8 @@ abstract readonly class AbstractAdapter implements Gateway
         int $attempts,
         string $traceId,
         float $started,
+        #[SensitiveParameter]
+        array $inUse,
     ): Answer {
         // A model that spent every token before it gave any output is cut off, not broken: that answer is returned.
         if ($answer->text === '' && $answer->toolCalls === [] && $answer->finishReason !== FinishReason::Length) {
@@ -517,7 +676,51 @@ abstract readonly class AbstractAdapter implements Gateway
             $this->millisecondsSince($started),
             $attempts,
             $traceId,
+            $this->withoutCredential($answer->opaque, $inUse),
         );
+    }
+
+    /**
+     * The opaque part of an answer, or null when it must not travel on: it is over the limits of a part, or it
+     * holds a credential of the gateway anywhere in it, in any case of letters. The part is then dropped whole, as
+     * a provider code or a detail is. It would go to whatever stores the conversation, where nobody looks into it.
+     *
+     * A credential is searched as it is, as JSON writes it inside a string, and with every backslash taken out of
+     * both: a provider's own JSON text, sealed as one string, writes a slash as a backslash and a slash.
+     *
+     * @param list<Secret> $inUse the secrets asked for this attempt alone: a token of the supplier
+     */
+    private function withoutCredential(
+        #[SensitiveParameter]
+        ?OpaquePart $opaque,
+        #[SensitiveParameter]
+        array $inUse,
+    ): ?OpaquePart {
+        if ($opaque === null || ! self::isWithinTheLimits($opaque->data)) {
+            return null;
+        }
+
+        $bare = str_replace('\\', '', $opaque->data);
+        foreach ([...$this->credentials->secrets(), ...$inUse] as $secret) {
+            $plain = $secret->reveal();
+            $forms = [
+                $plain,
+                substr((string) json_encode($plain, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE), 1, -1),
+                substr((string) json_encode($plain, JSON_INVALID_UTF8_SUBSTITUTE), 1, -1),
+            ];
+            foreach ($forms as $form) {
+                if ($form !== '' && stripos($opaque->data, $form) !== false) {
+                    return null;
+                }
+            }
+
+            $bareSecret = str_replace('\\', '', $plain);
+            if ($bareSecret !== '' && stripos($bare, $bareSecret) !== false) {
+                return null;
+            }
+        }
+
+        return $opaque;
     }
 
     // ---------------------------------------------------------------------------------------------------------
@@ -633,7 +836,7 @@ abstract readonly class AbstractAdapter implements Gateway
                                     break;
                                 }
                                 if ($event instanceof StreamFinished) {
-                                    $answer = $this->finished($event->answer, $request, $attempt, $traceId, $started);
+                                    $answer = $this->finished($event->answer, $request, $attempt, $traceId, $started, $inUse);
                                     $open = false;
                                     $this->reportFinished(Operation::Stream, $traceId, $attempt, $httpRequest, new HttpResponse($status, $headers, $read), null, false, $attemptStarted);
 
@@ -1236,6 +1439,201 @@ abstract readonly class AbstractAdapter implements Gateway
     private function millisecondsSince(float $moment): int
     {
         return max(0, (int) round(($this->config->clock->monotonic() - $moment) * 1000));
+    }
+
+    /**
+     * What binds an opaque part to its answer: the SHA-256 of the text and then, for every tool call, of its id, its
+     * name and its raw arguments. Every field is written with its length before it, so no two answers share a hash
+     * by moving a character from one field to the next.
+     *
+     * @param array<mixed> $toolCalls
+     * @return string|null null when the tool calls are not a list of tool calls
+     */
+    private static function hashOfAnswer(
+        #[SensitiveParameter]
+        string $text,
+        #[SensitiveParameter]
+        array $toolCalls,
+    ): ?string {
+        $fields = [$text];
+        foreach ($toolCalls as $toolCall) {
+            if (! $toolCall instanceof ToolCall) {
+                return null;
+            }
+            $fields[] = $toolCall->id;
+            $fields[] = $toolCall->name;
+            $fields[] = $toolCall->rawArguments;
+        }
+
+        $hash = hash_init('sha256');
+        foreach ($fields as $field) {
+            hash_update($hash, strlen($field) . ':' . $field);
+        }
+
+        return hash_final($hash);
+    }
+
+    /**
+     * Whether an opaque part is small enough to be decoded: at most OPAQUE_LIMIT_BYTES, and at most
+     * OPAQUE_LIMIT_CONTAINERS objects and lists. The bytes are walked once and every string is stepped over, a
+     * backslash with the byte after it, so text that holds brackets does not count. No regular expression: its
+     * limits are settings of PHP, and a part must not be refused because of a setting. A string that never ends is
+     * not JSON and is over the limits.
+     */
+    private static function isWithinTheLimits(#[SensitiveParameter] string $data): bool
+    {
+        $length = strlen($data);
+        if ($length > self::OPAQUE_LIMIT_BYTES) {
+            return false;
+        }
+
+        $containers = 0;
+        $at = 0;
+        while (true) {
+            $at += strcspn($data, '"[{', $at);
+            if ($at >= $length) {
+                return true;
+            }
+            if ($data[$at] !== '"') {
+                if (++$containers > self::OPAQUE_LIMIT_CONTAINERS) {
+                    return false;
+                }
+                $at++;
+
+                continue;
+            }
+
+            // Inside a string: on to its closing quote.
+            $at++;
+            while (true) {
+                if ($at >= $length) {
+                    return false;
+                }
+                $at += strcspn($data, '"\\', $at);
+                if ($at >= $length) {
+                    return false;
+                }
+                if ($data[$at] === '"') {
+                    $at++;
+
+                    break;
+                }
+                $at += 2;
+            }
+        }
+    }
+
+    /**
+     * The mark of an adapter when it has the form of one, or null: a small letter and then one or two small letters
+     * or digits.
+     */
+    private static function markOf(string $mark): ?string
+    {
+        return preg_match('/^[a-z][a-z0-9]{1,2}$/D', $mark) === 1 ? $mark : null;
+    }
+
+    /**
+     * A value as JSON in one fixed form: the same bytes for the same value on every host. No setting of PHP changes
+     * it (json_encode() writes a float as serialize_precision says), and what json_decode() makes of these bytes
+     * gives these bytes again. A float is written with the fewest digits that give the same float back, always with
+     * an exponent, so it stays a float; minus zero is `-0e+0` and comes back as minus zero. An array that is a list
+     * is a JSON list, every other array an object.
+     *
+     * @return string|null null for what cannot be written: a text that is not valid UTF-8, a number that is not
+     *                     finite, an object other than a plain one, a resource, more than 128 levels
+     */
+    private static function fixedJson(#[SensitiveParameter] mixed $value): ?string
+    {
+        $written = '';
+
+        return self::writeFixedJson($value, 0, $written) ? $written : null;
+    }
+
+    /**
+     * Adds the value to what is written so far, piece by piece: a large value then takes its own size once, not a
+     * second copy of every item.
+     */
+    private static function writeFixedJson(
+        #[SensitiveParameter]
+        mixed $value,
+        int $depth,
+        #[SensitiveParameter]
+        string &$written,
+    ): bool {
+        if ($value === null) {
+            $written .= 'null';
+
+            return true;
+        }
+        if (is_bool($value)) {
+            $written .= $value ? 'true' : 'false';
+
+            return true;
+        }
+        if (is_int($value)) {
+            $written .= $value;
+
+            return true;
+        }
+        if (is_float($value)) {
+            if (! is_finite($value)) {
+                return false;
+            }
+            if ($value === 0.0) {
+                // sprintf() writes no sign for minus zero, and 0.0 === -0.0: its sign shows only in a division.
+                $written .= fdiv(1.0, $value) < 0.0 ? '-0e+0' : '0e+0';
+
+                return true;
+            }
+            for ($digits = 0; $digits < 17; $digits++) {
+                // The "e" of sprintf() always writes a point, whatever the locale of the host (its "f" does not).
+                $number = sprintf('%.' . $digits . 'e', $value);
+                if ((float) $number === $value) {
+                    $written .= $number;
+
+                    return true;
+                }
+            }
+
+            return false;
+        }
+        if (is_string($value)) {
+            $text = json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            if ($text === false) {
+                return false;
+            }
+            $written .= $text;
+
+            return true;
+        }
+        if ($value instanceof stdClass) {
+            $value = get_object_vars($value);
+        }
+        if (! is_array($value) || $depth >= 128) {
+            return false;
+        }
+
+        $list = array_is_list($value);
+        $written .= $list ? '[' : '{';
+        $first = true;
+        foreach ($value as $name => $item) {
+            if (! $first) {
+                $written .= ',';
+            }
+            $first = false;
+            if (! $list) {
+                if (! self::writeFixedJson((string) $name, $depth + 1, $written)) {
+                    return false;
+                }
+                $written .= ':';
+            }
+            if (! self::writeFixedJson($item, $depth + 1, $written)) {
+                return false;
+            }
+        }
+        $written .= $list ? ']' : '}';
+
+        return true;
     }
 
     private static function newTraceId(): string

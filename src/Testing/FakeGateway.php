@@ -50,6 +50,9 @@ use OrganiseYou\LlmGateway\Contract\WrongUse;
  * - stream() throws no gateway error: a failure is the last event.
  * - With withCapabilities(), a request that asks what those capabilities lack is refused as not supported, and no
  *   scripted entry is used for it. Until then the fake says it can do everything.
+ * - It never makes an opaque part. One that a scripted answer holds reaches the caller in the answer and in its
+ *   toMessage(); a recorded request holds the parts it was sent, so a test can assert that the part went into the
+ *   next round. The fake does not judge a part: it has no provider to send it to.
  *
  * Its script and its record are the state of one object, on purpose: it lives in a test.
  */
@@ -469,6 +472,7 @@ final class FakeGateway implements Gateway
             $answer->latencyMs,
             $answer->attempts,
             $traceId,
+            $answer->opaque,
         );
     }
 

@@ -14,8 +14,10 @@ use OrganiseYou\LlmGateway\Contract\GatewayException;
 use OrganiseYou\LlmGateway\Contract\JsonSchema;
 use OrganiseYou\LlmGateway\Contract\Message;
 use OrganiseYou\LlmGateway\Contract\ModelInfo;
+use OrganiseYou\LlmGateway\Contract\OpaquePart;
 use OrganiseYou\LlmGateway\Contract\Request;
 use OrganiseYou\LlmGateway\Contract\ResponseFormat;
+use OrganiseYou\LlmGateway\Contract\Role;
 use OrganiseYou\LlmGateway\Contract\Stream\StreamEvent;
 use OrganiseYou\LlmGateway\Contract\Stream\StreamFailed;
 use OrganiseYou\LlmGateway\Contract\Stream\StreamFinished;
@@ -27,6 +29,7 @@ use OrganiseYou\LlmGateway\Contract\StructuredIssue;
 use OrganiseYou\LlmGateway\Contract\StructuredIssueKind;
 use OrganiseYou\LlmGateway\Contract\StructuredResult;
 use OrganiseYou\LlmGateway\Contract\Support;
+use OrganiseYou\LlmGateway\Contract\TextPart;
 use OrganiseYou\LlmGateway\Contract\ToolCall;
 use OrganiseYou\LlmGateway\Contract\ToolChoice;
 use OrganiseYou\LlmGateway\Contract\ToolDefinition;
@@ -421,4 +424,81 @@ it('returns the scripted connection report, with the trace id of the call when o
         ->and(fn() => $fake->check('', 10.0))->toThrow(InvalidArgumentException::class)
         ->and(fn() => $fake->check('model-a', NAN))->toThrow(InvalidArgumentException::class)
         ->and(fn() => $fake->check('model-a', 10.0, ''))->toThrow(InvalidArgumentException::class);
+});
+
+describe('an opaque part', function (): void {
+    it('is never made by the fake: a scripted text, tool call or plain answer has none', function (): void {
+        $call = ToolCall::decoded('call_1', 'lookup', ['q' => 'x'], '{"q":"x"}');
+        $gateway = (new FakeGateway())
+            ->willAnswerText('Hello.')
+            ->willCallTools($call)
+            ->willAnswer(new Answer('Hello.', null, [], FinishReason::Stop, 'model-a', new Usage(3, 2), 0, 1, 'scripted'));
+
+        expect($gateway->complete(requestOfTheFake())->opaque)->toBeNull()
+            ->and($gateway->complete(requestOfTheFake(tools: true))->opaque)->toBeNull()
+            ->and($gateway->complete(requestOfTheFake())->opaque)->toBeNull();
+    });
+
+    it('passes a scripted part on, through complete() and through a stream, also when the answer is built again', function (): void {
+        $call = ToolCall::decoded('call_1', 'lookup', ['q' => 'x'], '{"q":"x"}');
+        $part = new OpaquePart('data that goes back');
+        $scripted = new Answer('', null, [$call], FinishReason::ToolCalls, 'model-a', new Usage(3, 2), 0, 1, 'scripted', $part);
+
+        $gateway = (new FakeGateway())
+            ->willAnswer($scripted)
+            ->willAnswer($scripted)
+            ->willStream(new ToolCallStarted(0, 'call_1', 'lookup'), new ToolCallCompleted(0, $call), new StreamFinished($scripted))
+            ->willStream(new ToolCallStarted(0, 'call_1', 'lookup'), new ToolCallCompleted(0, $call), new StreamFinished($scripted));
+
+        // The trace id of the request replaces the scripted one, so the fake builds the answer again.
+        $whole = $gateway->complete(requestOfTheFake(traceId: 'trace-of-the-call', tools: true));
+        $events = iterator_to_array($gateway->stream(requestOfTheFake(traceId: 'trace-of-the-call', tools: true)), false);
+        $streamed = iterator_to_array($gateway->stream(requestOfTheFake(traceId: 'trace-of-the-call', tools: true)), false);
+        $fromAStream = $gateway->complete(requestOfTheFake(traceId: 'trace-of-the-call', tools: true));
+
+        $last = $events[count($events) - 1];
+        $lastStreamed = $streamed[count($streamed) - 1];
+        assert($last instanceof StreamFinished && $lastStreamed instanceof StreamFinished);
+
+        expect($whole->traceId)->toBe('trace-of-the-call')
+            ->and($whole->opaque)->toBe($part)
+            ->and($whole->toMessage()->parts)->toBe([$part])
+            ->and($last->answer->opaque)->toBe($part)
+            ->and($lastStreamed->answer->opaque)->toBe($part)
+            ->and($fromAStream->opaque)->toBe($part);
+    });
+
+    it('records the parts it is sent, so a test can assert that its loop carried the part into the next round', function (): void {
+        $call = ToolCall::decoded('call_1', 'lookup', ['q' => 'x'], '{"q":"x"}');
+        $part = new OpaquePart('data that goes back');
+        $gateway = (new FakeGateway())
+            ->willAnswer(new Answer('', null, [$call], FinishReason::ToolCalls, 'model-a', new Usage(3, 2), 0, 1, 'scripted', $part))
+            ->willAnswerText('Done.');
+
+        $request = requestOfTheFake(tools: true);
+        $first = $gateway->complete($request);
+        $final = $gateway->complete($request->withMessages([
+            ...$request->messages,
+            $first->toMessage(),
+            Message::toolResult('call_1', 'lookup', '{"found":true}'),
+        ]));
+
+        $sent = $gateway->requests()[1]->messages;
+
+        expect($final->text)->toBe('Done.')
+            ->and($sent[count($sent) - 2]->parts)->toBe([$part])
+            ->and($sent[count($sent) - 2]->toolCalls)->toBe([$call]);
+    });
+
+    it('records a part it did not script as it is: the fake judges no part', function (): void {
+        $foreign = new OpaquePart('{"f":"zz"}');
+        $gateway = (new FakeGateway())->willAnswerText('Done.');
+
+        $request = requestOfTheFake();
+        $gateway->complete($request->withMessages([...$request->messages, new Message(Role::Assistant, [$foreign, new TextPart('Hello.')]), Message::user('Again.')]));
+
+        $sent = $gateway->requests()[0]->messages;
+
+        expect($sent[count($sent) - 2]->parts[0])->toBe($foreign);
+    });
 });

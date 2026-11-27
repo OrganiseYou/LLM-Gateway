@@ -48,6 +48,11 @@ final class BrokenSubject implements ContractSubject
         $this->sound->gives($fixture, $asStream);
     }
 
+    public function cannotGive(ContractFixture $fixture, bool $asStream): ?string
+    {
+        return $this->sound->cannotGive($fixture, $asStream);
+    }
+
     public function fails(ContractFailure $failure, ?int $retryAfterSeconds = null, bool $asStream = false, ?string $echo = null): void
     {
         $this->sound->fails($failure, $retryAfterSeconds, $asStream, $echo);

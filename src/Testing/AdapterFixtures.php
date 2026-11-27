@@ -18,17 +18,19 @@ use OrganiseYou\LlmGateway\Transport\HttpResponse;
 interface AdapterFixtures
 {
     /**
-     * The whole successful response (status 200 to 299) that holds what the case says.
+     * The whole successful response (status 200 to 299) that holds what the case says. NotApplicable, with the
+     * reason, only for ContractFixture::ToolCallWithOpaqueData and only when the format has no data that must go
+     * back unchanged: for every other case it fails the test.
      */
-    public function answer(ContractFixture $fixture): ?HttpResponse;
+    public function answer(ContractFixture $fixture): HttpResponse|NotApplicable|null;
 
     /**
      * The same answer as the chunks of a stream, cut where a server would cut them. Asked only when the gateway
-     * says it streams natively.
+     * says it streams natively. NotApplicable exactly when answer() gives it for the case: the two must agree.
      *
-     * @return list<string>|null
+     * @return list<string>|NotApplicable|null
      */
-    public function stream(ContractFixture $fixture): ?array;
+    public function stream(ContractFixture $fixture): array|NotApplicable|null;
 
     /**
      * The response of the format for a failed request with this status, in the shape of its error body.

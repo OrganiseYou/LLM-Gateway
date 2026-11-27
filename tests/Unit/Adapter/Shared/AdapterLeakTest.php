@@ -13,6 +13,7 @@ use OrganiseYou\LlmGateway\Contract\ForeignFault;
 use OrganiseYou\LlmGateway\Contract\GatewayException;
 use OrganiseYou\LlmGateway\Contract\Internal\Rules;
 use OrganiseYou\LlmGateway\Contract\InvalidValue;
+use OrganiseYou\LlmGateway\Contract\OpaquePart;
 use OrganiseYou\LlmGateway\Contract\RetryPolicy;
 use OrganiseYou\LlmGateway\Contract\Stream\StreamFailed;
 use OrganiseYou\LlmGateway\Contract\Stream\StreamFinished;
@@ -320,11 +321,19 @@ describe('the parameters that carry a response, a request or a secret', function
         'providerCode' => [AbstractAdapter::class, 'providerCode', ['response']],
         'refineReason' => [AbstractAdapter::class, 'refineReason', ['response']],
         'retryAfterSeconds' => [AbstractAdapter::class, 'retryAfterSeconds', ['response']],
-        'answer' => [AbstractAdapter::class, 'answer', ['text', 'toolCalls', 'model', 'structured']],
+        'answer' => [AbstractAdapter::class, 'answer', ['text', 'toolCalls', 'model', 'structured', 'opaque']],
+        'seal' => [AbstractAdapter::class, 'seal', ['text', 'toolCalls', 'content']],
+        'unseal' => [AbstractAdapter::class, 'unseal', ['message']],
+        'withoutCredential' => [AbstractAdapter::class, 'withoutCredential', ['opaque', 'inUse']],
+        'hashOfAnswer' => [AbstractAdapter::class, 'hashOfAnswer', ['text', 'toolCalls']],
+        'fixedJson' => [AbstractAdapter::class, 'fixedJson', ['value']],
+        'writeFixedJson' => [AbstractAdapter::class, 'writeFixedJson', ['value', 'written']],
+        'isWithinTheLimits' => [AbstractAdapter::class, 'isWithinTheLimits', ['data']],
+        'OpaquePart' => [OpaquePart::class, '__construct', ['data']],
         'failure' => [AbstractAdapter::class, 'failure', ['detail', 'providerCode']],
         'exchange' => [AbstractAdapter::class, 'exchange', ['template']],
-        'read' => [AbstractAdapter::class, 'read', ['response']],
-        'finished' => [AbstractAdapter::class, 'finished', ['answer']],
+        'read' => [AbstractAdapter::class, 'read', ['response', 'inUse']],
+        'finished' => [AbstractAdapter::class, 'finished', ['answer', 'inUse']],
         'guarded' => [AbstractAdapter::class, 'guarded', ['chunks', 'read']],
         'whatTheAdapterReads' => [AbstractAdapter::class, 'whatTheAdapterReads', ['chunks']],
         'unreadable' => [AbstractAdapter::class, 'unreadable', ['broken']],

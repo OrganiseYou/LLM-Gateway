@@ -18,6 +18,12 @@ All notable changes to this package are written here. The format follows
 - `tests/Readme`: the tests execute every sample of the README that is marked as running today, compare what it
   prints with what the README shows, and run the shared test set on the example adapter of the README.
 - `Testing\FakeGateway::willAnswerText()` takes the token counts of the answer as an optional second argument.
+- `Contract\OpaquePart`: data that came with an answer and must go back unchanged in the next round. `Answer::$opaque`
+  and `Answer::toMessage()` carry it, an adapter seals and opens it with `seal()` and `unseal()` of the adapter base,
+  and the shared test set gains the case `ContractFixture::ToolCallWithOpaqueData`. For a host that wrote its own
+  classes for the shared test set: a class that implements `Testing\ContractSubject` must add `cannotGive()`, and a
+  class that implements `Testing\AdapterFixtures` must answer for the new case, with a fixture or with
+  `NotApplicable` from both `answer()` and `stream()`.
 
 ### Security
 

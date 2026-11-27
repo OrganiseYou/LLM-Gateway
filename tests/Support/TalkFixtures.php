@@ -74,6 +74,7 @@ final readonly class TalkFixtures implements AdapterFixtures
             ContractFixture::StructuredInvalid => 'structured_invalid',
             ContractFixture::CutOff => 'cut_off',
             ContractFixture::EmptyAnswer => 'empty_answer',
+            ContractFixture::ToolCallWithOpaqueData => 'tool_call_with_opaque_data',
         };
     }
 

@@ -6,6 +6,7 @@ namespace OrganiseYou\LlmGateway\Contract;
 
 use LogicException;
 use OrganiseYou\LlmGateway\Contract\Internal\Rules;
+use SensitiveParameter;
 
 /**
  * One answer in the neutral shape.
@@ -19,6 +20,8 @@ final readonly class Answer
      * @param string $model the model that answered; the requested model when the provider does not say
      * @param int $latencyMs the whole call: every attempt and every wait
      * @param int $attempts HTTP attempts made for this call
+     * @param OpaquePart|null $opaque data that came with the answer and must go back with it, unchanged, in the next
+     *                                round; null when there is none. It has no meaning here: do not read it
      */
     public function __construct(
         public string $text,
@@ -30,6 +33,8 @@ final readonly class Answer
         public int $latencyMs,
         public int $attempts,
         public string $traceId,
+        #[SensitiveParameter]
+        public ?OpaquePart $opaque = null,
     ) {
         if (preg_match('//u', $text) !== 1) {
             throw new InvalidValue('The text of an answer must be valid UTF-8.');
@@ -52,7 +57,8 @@ final readonly class Answer
     }
 
     /**
-     * The answer as the assistant message of the next round.
+     * The answer as the assistant message of the next round: the opaque part when there is one, then the text (left
+     * out when it is empty and there are tool calls), and the tool calls.
      *
      * @throws LogicException when the text is empty and there are no tool calls
      */
@@ -62,7 +68,12 @@ final readonly class Answer
             throw new WrongUse('An answer without text and without tool calls cannot become a message.');
         }
 
-        return Message::assistant($this->text, ...$this->toolCalls);
+        $parts = $this->opaque === null ? [] : [$this->opaque];
+        if ($this->text !== '') {
+            $parts[] = new TextPart($this->text);
+        }
+
+        return new Message(Role::Assistant, $parts, $this->toolCalls);
     }
 
     /**

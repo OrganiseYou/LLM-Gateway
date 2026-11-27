@@ -11,7 +11,9 @@ use OrganiseYou\LlmGateway\Contract\Answer;
 use OrganiseYou\LlmGateway\Contract\Capabilities;
 use OrganiseYou\LlmGateway\Contract\ErrorReason;
 use OrganiseYou\LlmGateway\Contract\FinishReason;
+use OrganiseYou\LlmGateway\Contract\Message;
 use OrganiseYou\LlmGateway\Contract\ModelInfo;
+use OrganiseYou\LlmGateway\Contract\OpaquePart;
 use OrganiseYou\LlmGateway\Contract\Request;
 use OrganiseYou\LlmGateway\Contract\Role;
 use OrganiseYou\LlmGateway\Contract\Stream\StreamFinished;
@@ -34,10 +36,14 @@ use SensitiveParameter;
  * An adapter for a made-up format, written outside the library the way a host project would write one: it uses
  * only the constructor and the protected methods of the adapter base. The tests of the base run on it.
  *
- * The format, "talk": a completion is POST /talk with {"model", "stream", "lines": [{"who", "say"}], "tools",
- * "shape"}; its answer is {"say", "calls": [{"ref", "tool", "input"}], "end", "by", "used": {"in", "out"}}; an
- * error is {"fault": {"code", "wait"}}; a stream has the events say, call_open, call, used, end and fault; the
- * models are GET /catalog with {"items": [{"key", "title", "window"}]}.
+ * The format, "talk": a completion is POST /talk with {"model", "stream", "lines": [{"who", "say", "aside"}],
+ * "tools", "shape"}; its answer is {"say", "aside", "calls": [{"ref", "tool", "input"}], "end", "by", "used": {"in",
+ * "out"}}; an error is {"fault": {"code", "wait"}}; a stream has the events say, aside, call_open, call, used, end
+ * and fault; the models are GET /catalog with {"items": [{"key", "title", "window"}]}.
+ *
+ * An "aside" is what a server of this format writes beside an answer and wants back, unchanged, on the line of
+ * that answer in the next request. It has no neutral form: the adapter seals it into the opaque part of the answer
+ * and sends it back only when unseal() gives it.
  *
  * What a server of this format can do is told by the adapter options of the preset. With the option "structured" as
  * "emulated" the server takes no "shape": the adapter puts the schema in the system text instead. A body with
@@ -45,6 +51,8 @@ use SensitiveParameter;
  */
 final readonly class TalkAdapter extends AbstractAdapter
 {
+    protected const string OPAQUE_FORMAT = 't1';
+
     protected function modelCapabilities(string $model): Capabilities
     {
         if ($this->option('capabilities_fail', false) === true) {
@@ -89,7 +97,12 @@ final readonly class TalkAdapter extends AbstractAdapter
                 $lines[] = $instructions;
                 $instructions = null;
             }
-            $lines[] = ['who' => $message->role->value, 'say' => $message->text()];
+            $line = ['who' => $message->role->value, 'say' => $message->text()];
+            $aside = $this->asideOf($message);
+            if ($aside !== null) {
+                $line['aside'] = $aside;
+            }
+            $lines[] = $line;
         }
         if ($instructions !== null) {
             $lines[] = $instructions;
@@ -154,17 +167,68 @@ final readonly class TalkAdapter extends AbstractAdapter
         foreach (self::listIn($body, 'calls') as $at => $call) {
             $calls[] = self::toolCall($call, $at);
         }
+        $text = self::textIn($body, 'say');
 
         return $this->answer(
             $request,
-            self::textIn($body, 'say'),
+            $text,
             $calls,
             self::finishReason(self::textIn($body, 'end')),
             self::usage($body['used'] ?? null),
             self::textIn($body, 'by'),
             // A format that gets the structured answer its own way hands the result to answer().
             is_array($body['shaped'] ?? null) ? new StructuredResult($body['shaped'], self::issues($body['shaped_issue'] ?? null)) : null,
+            $this->sealed($text, $calls, $body['aside'] ?? null),
         );
+    }
+
+    /**
+     * The aside of an answer as its opaque part, or null when the answer has none: an answer of plain text and tool
+     * calls has no opaque part.
+     *
+     * @param list<ToolCall> $calls
+     */
+    private function sealed(
+        #[SensitiveParameter]
+        string $text,
+        #[SensitiveParameter]
+        array $calls,
+        #[SensitiveParameter]
+        mixed $aside,
+    ): ?OpaquePart {
+        return is_array($aside) && $aside !== [] ? $this->seal($text, $calls, $aside) : null;
+    }
+
+    /**
+     * The aside to send back on the line of an assistant message, or null. A sound adapter asks unseal(), which
+     * gives it only for a part of this adapter in the message it came with.
+     *
+     * The option "aside_check" makes the adapter careless, for the tests that the shared test set catches it:
+     * "none" sends whatever a part holds, "mark_only" sends the part of this adapter also when the message was
+     * changed since.
+     *
+     * @return array<mixed>|string|null
+     */
+    private function asideOf(Message $message): array|string|null
+    {
+        $check = $this->option('aside_check', 'sealed');
+        if ($check === 'sealed') {
+            return $this->unseal($message);
+        }
+
+        foreach ($message->parts as $part) {
+            if (! $part instanceof OpaquePart) {
+                continue;
+            }
+            $envelope = json_decode($part->data, true);
+            if ($check === 'none') {
+                return is_array($envelope) && is_array($envelope['c'] ?? null) ? $envelope['c'] : $part->data;
+            }
+
+            return is_array($envelope) && ($envelope['f'] ?? null) === self::OPAQUE_FORMAT && is_array($envelope['c'] ?? null) ? $envelope['c'] : null;
+        }
+
+        return null;
     }
 
     protected function readStream(#[SensitiveParameter] iterable $events, Request $request): iterable
@@ -172,11 +236,15 @@ final readonly class TalkAdapter extends AbstractAdapter
         $text = '';
         $calls = [];
         $usage = new Usage(null, null);
+        $aside = null;
 
         foreach ($events as $event) {
             $data = $this->decoded($event->data);
 
-            if ($event->event === 'say') {
+            if ($event->event === 'aside') {
+                // No neutral event carries it: it travels in the answer of the last event.
+                $aside = $data;
+            } elseif ($event->event === 'say') {
                 $piece = self::textIn($data, 'piece');
                 if ($piece !== '') {
                     $text .= $piece;
@@ -202,6 +270,8 @@ final readonly class TalkAdapter extends AbstractAdapter
                     self::finishReason(self::textIn($data, 'end')),
                     $usage,
                     self::textIn($data, 'by'),
+                    null,
+                    $this->sealed($text, $calls, $aside),
                 ));
 
                 return;

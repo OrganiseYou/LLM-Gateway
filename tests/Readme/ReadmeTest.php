@@ -201,16 +201,20 @@ describe('what the samples of the README declare', function (): void {
         // The one skip that depends on a setting of PHP, which the README names apart.
         $forTheSetting = array_filter($skipped, fn(string $why): bool => str_contains($why, 'zend.exception_ignore_args'));
         $ofTheExample = count($skipped) - count($forTheSetting);
+        // The example says of one thing that its format does not have it: data that must go back unchanged.
         $ofTheFixtures = count(array_filter($skipped, fn(string $why): bool => str_starts_with($why, 'The fixtures say')));
+        $forOpaqueData = count(array_filter($skipped, fn(string $why): bool => str_starts_with($why, 'The fixtures say an answer with opaque data does not apply')));
 
         $prose = ReadmeSamples::prose();
         expect(preg_match('/streams natively skips (\w+):/', $prose, $everything))->toBe(1, 'the README must say how many tests a gateway that can do everything skips')
-            ->and(preg_match('/The example above has a fixture for both, so it skips only those (\w+)\./', $prose, $example))->toBe(1, 'the README must say how many tests its example skips');
+            ->and(preg_match('/it skips those (\w+) and the (\w+) tests\s+of an answer with opaque data\./', $prose, $example))->toBe(1, 'the README must say how many tests its example skips');
 
         expect($tests)->toBeGreaterThan(40)
-            ->and($ofTheFixtures)->toBe(0)
-            ->and(numberOfWord($everything[1] ?? ''))->toBe($ofTheExample)
-            ->and(numberOfWord($example[1] ?? ''))->toBe($ofTheExample);
+            ->and($forOpaqueData)->toBeGreaterThan(0)
+            ->and($ofTheFixtures)->toBe($forOpaqueData)
+            ->and(numberOfWord($everything[1] ?? ''))->toBe($ofTheExample - $forOpaqueData)
+            ->and(numberOfWord($example[1] ?? ''))->toBe($ofTheExample - $forOpaqueData)
+            ->and(numberOfWord($example[2] ?? ''))->toBe($forOpaqueData);
     });
 
     it('marks as sensitive every parameter of the example adapter that takes a response or a piece of one', function (): void {

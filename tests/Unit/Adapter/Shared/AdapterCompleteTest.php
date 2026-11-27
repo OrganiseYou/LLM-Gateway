@@ -74,8 +74,37 @@ describe('the adapter base', function (): void {
             'readStream' => 'abstract',
             'refineReason' => 'open',
             'retryAfterSeconds' => 'open',
+            'seal' => 'final',
             'setting' => 'final',
+            'unseal' => 'final',
             'url' => 'final',
+        ]);
+    });
+
+    it('offers one protected constant, which an adapter that seals nothing leaves as it is', function (): void {
+        $constants = [];
+        foreach ((new ReflectionClass(AbstractAdapter::class))->getReflectionConstants(ReflectionClassConstant::IS_PROTECTED | ReflectionClassConstant::IS_PUBLIC) as $constant) {
+            $constants[$constant->getName()] = $constant->getValue();
+        }
+
+        expect($constants)->toBe(['OPAQUE_FORMAT' => '']);
+    });
+
+    it('keeps answer() as it was for an adapter that knows no opaque part: the new parameter is the last and optional', function (): void {
+        $parameters = [];
+        foreach ((new ReflectionMethod(AbstractAdapter::class, 'answer'))->getParameters() as $parameter) {
+            $parameters[$parameter->getName()] = $parameter->isDefaultValueAvailable() ? var_export($parameter->getDefaultValue(), true) : 'required';
+        }
+
+        expect($parameters)->toBe([
+            'request' => 'required',
+            'text' => 'required',
+            'toolCalls' => 'required',
+            'finishReason' => 'required',
+            'usage' => 'required',
+            'model' => 'NULL',
+            'structured' => 'NULL',
+            'opaque' => 'NULL',
         ]);
     });
 });
